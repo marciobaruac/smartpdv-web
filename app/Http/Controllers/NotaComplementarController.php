@@ -1,0 +1,804 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Devolucao;
+use App\Models\ItemDevolucao;
+use App\Models\Fornecedor;
+use App\Models\Cidade;
+use App\Models\Produto;
+use App\Models\NaturezaOperacao;
+use App\Models\ConfigNota;
+use App\Models\Tributacao;
+use NFePHP\DA\NFe\Danfe;
+use NFePHP\DA\NFe\Daevento;
+use App\Services\NotaComplementarService;
+use App\Helpers\StockMove;
+use App\Models\Transportadora;
+use App\Models\Frete;
+use App\Models\NotaComplementar;
+use App\Models\Cliente;
+use App\Models\ItemNotaComplementar;
+use Illuminate\Support\Facades\DB;
+
+class NotaComplementarController extends Controller
+{
+	public function __construct(){
+		$this->middleware(function ($request, $next) {
+			$value = session('user_logged');
+			if(!$value){
+				return redirect("/login");
+			}
+			return $next($request);
+		});
+	}
+
+	public function index(){
+		$notacomplementars = NotaComplementar::
+		orderBy('id', 'desc')
+		->paginate(20);
+
+		return view('notacomplementar/list')
+		->with('notacomplementars', $notacomplementars)
+		->with('notacomplementarNF', true)
+		->with('links', true)
+		->with('title', 'Lista de Notas Complementares');
+	}
+
+	public function new(){
+		return view('notacomplementar/new')
+		->with('title', 'Nova Nota Complementar');
+	}
+
+	private function validaChave($chave){
+		$chave = substr($chave, 3, 44);
+		$cp = NotaComplementar::
+		where('chave_nf_origem', $chave)
+		->first();
+		return $cp == null ? true : false;
+	}
+
+	public function renderizarXml(Request $request){
+		if ($request->hasFile('file')){
+			$arquivo = $request->hasFile('file');
+			$xml = simplexml_load_file($request->file);
+            
+			//echo "<pre>";
+		   // print_r($xml->NFe->infNFe->attributes()->Id);
+			//echo "</pre>";
+			//die();
+
+			//echo "<pre>";
+		//	print_r($xml->NFe->infNFe->emit->CPF);
+		//	echo "</pre>";
+		//	die();
+
+			if($this->validaChave($xml->NFe->infNFe->attributes()->Id)){
+
+
+				$cidade = Cidade::getCidadeCod($xml->NFe->infNFe->emit->enderEmit->cMun);
+				$dadosEmitente = [
+					'cpf' => $xml->NFe->infNFe->emit->CPF,
+					'cnpj' => $xml->NFe->infNFe->emit->CNPJ,  				
+					'razaoSocial' => $xml->NFe->infNFe->emit->xNome, 				
+					'nomeFantasia' => $xml->NFe->infNFe->emit->xFant,
+					'logradouro' => $xml->NFe->infNFe->emit->enderEmit->xLgr,
+					'numero' => $xml->NFe->infNFe->emit->enderEmit->nro,
+					'bairro' => $xml->NFe->infNFe->emit->enderEmit->xBairro,
+					'cep' => $xml->NFe->infNFe->emit->enderEmit->CEP,
+					'fone' => $xml->NFe->infNFe->emit->enderEmit->fone,
+					'ie' => $xml->NFe->infNFe->emit->IE,
+					'cidade_id' => $cidade->id
+				];
+
+				$vFrete = number_format((double) $xml->NFe->infNFe->total->ICMSTot->vFrete, 
+					2, ",", ".");
+				$vDesc = number_format((double) $xml->NFe->infNFe->total->ICMSTot->vDesc, 2, ",", ".");
+
+				$idCliente = 0;
+				$clienteEncontrado = $this->verificaCliente($xml->NFe->infNFe->dest->CNPJ);
+				$dadosAtualizados = [];
+				if($clienteEncontrado){
+					$idCliente = $clienteEncontrado->id;
+					//$dadosAtualizados = $this->verificaAtualizacao($fornecedorEncontrado, $dadosEmitente);
+				}else{
+
+					array_push($dadosAtualizados, "Fornecedor cadastrado com sucesso");
+					$idFornecedor = $this->cadastrarFornecedor($dadosEmitente);
+				}
+
+
+				$seq = 0;
+				$itens = [];
+				$contSemRegistro = 0;
+				$config = ConfigNota::first();
+				$transportadoras = Transportadora::all();
+
+				$tributacao = Tributacao::first();
+
+				foreach($xml->NFe->infNFe->det as $item) {
+					
+				     //echo "<pre>";
+			        // print_r($item->prod->cProd);
+			        // echo "</pre>";
+			         //die();
+					 $produto = Produto::verificaCadastrado($item->prod->cProd,
+					 $item->prod->xProd, $item->prod->cProd,$config->consultaprodutoentrada);
+			       // echo "<pre>";
+			         //print_r($item->prod->NCM);
+					// print_r($ncm);
+					 
+			        // echo "</pre>";
+			         //die();
+						$trib = NotaComplementar::getTrib($item->imposto);
+
+					if ($produto->CST_CSOSN == '500'){
+
+						$cst_csosn = $produto->CST_CSOSN;
+					}
+					else{
+
+						$cst_csosn = '101';
+
+					}
+					
+					$item = [
+						'idproduto' =>$produto->id,
+						'codigo' => $item->prod->cProd,
+					    
+						'xProd' => $item->prod->xProd,
+						
+						'NCM' => $produto->NCM,
+					//	'NCM' => $item->prod->NCM,
+						
+						'CFOP' => $produto->CFOP_saida_estadual,
+					
+					    'uCom' => $item->prod->uCom,
+						'vUnCom' => $item->prod->vUnCom,
+						'qCom' => $item->prod->qCom,
+						
+						'codBarras' => $item->prod->cEAN,
+						
+						'cst_csosn' => $produto->CST_CSOSN,
+						'cst_pis' => $produto->CST_PIS,
+						'cst_cofins' => $produto->CST_COFINS,
+						'cst_ipi' => $produto->CST_IPI,
+						'perc_icms' => $produto->perc_icms,
+						'perc_pis' =>  $produto->perc_pis ,
+						'perc_cofins' => $produto->perc_cofins ,
+						'perc_ipi' => $produto->perc_ipi,
+						'pRedBC' => $produto->pRedBC
+					];
+
+					array_push($itens, $item);
+
+				}
+
+				//echo "<pre>";
+			  //  print_r($itens);
+			
+					 
+			   //  echo "</pre>";
+			  //  die();
+				
+				$chave = substr($xml->NFe->infNFe->attributes()->Id, 3, 44);
+				$dadosNf = [
+					'chave' => $chave,
+					'vProd' => $xml->NFe->infNFe->total->ICMSTot->vProd,
+					'indPag' => $xml->NFe->infNFe->ide->indPag,
+					'nNf' => $xml->NFe->infNFe->ide->nNF,
+					'vFrete' => $vFrete,
+					'vDesc' => $vDesc,
+				];
+
+
+			//Pagamento
+				$fatura = [];
+				if (!empty($xml->NFe->infNFe->cobr->dup))
+				{
+					foreach($xml->NFe->infNFe->cobr->dup as $dup) {
+						$titulo = $dup->nDup;
+						$vencimento = $dup->dVenc;
+						$vencimento = explode('-', $vencimento);
+						$vencimento = $vencimento[2]."/".$vencimento[1]."/".$vencimento[0];
+						$vlr_parcela = number_format((double) $dup->vDup, 2, ",", ".");	
+
+						$parcela = [
+							'numero' => $titulo,
+							'vencimento' => $vencimento,
+							'valor_parcela' => $vlr_parcela
+						];
+						array_push($fatura, $parcela);
+					}
+				}
+
+			//upload
+				$file = $request->file;
+				$nameArchive = $chave . ".xml" ;
+
+				$pathXml = $file->move(public_path('xml_devolucao_entrada'), $nameArchive);
+
+            //fim upload
+
+				$naturezas = NaturezaOperacao::all();
+
+				return view('notacomplementar/visualizaNota')
+				->with('title', 'Nota Complementar de Impostos')
+				->with('itens', $itens)
+				->with('fatura', $fatura)
+				->with('notacomplementarJs', true)
+				->with('pathXml', $nameArchive)
+				->with('idFornecedor', $idCliente )
+				->with('dadosNf', $dadosNf)
+				->with('naturezas', $naturezas)
+				->with('config', $config)
+				->with('dadosEmitente', $dadosEmitente)
+				->with('dadosAtualizados', $dadosAtualizados)
+				->with('transportadoras', $transportadoras);
+				
+			}else{
+
+				session()->flash('mensagem_erro', 'Este XML, já foi realizado nota complementar!');
+				return redirect("/notacomplementar/nova");
+			}
+
+		}else{
+
+			session()->flash('mensagem_erro', 'XML inválido!');
+			return redirect("/notacomplementar/nova");
+		}
+	}
+
+	private function verificaFornecedor($cnpj){
+		$forn = Fornecedor::verificaCadastrado($this->formataCnpj($cnpj));
+		return $forn;
+	}
+
+	private function verificaCliente($cnpj){
+		$forn = Cliente::verificaCadastrado($this->formataCnpj($cnpj));
+		return $forn;
+	}
+
+	private function cadastrarFornecedor($fornecedor){
+		$result = Fornecedor::create([
+			'razao_social' => $fornecedor['razaoSocial'],
+			'nome_fantasia' => $fornecedor['nomeFantasia'],
+			'rua' => $fornecedor['logradouro'],
+			'numero' => $fornecedor['numero'],
+			'bairro' => $fornecedor['bairro'],
+			'cep' => $this->formataCep($fornecedor['cep']),
+			'cpf_cnpj' => $this->formataCnpj($fornecedor['cnpj']),
+			'ie_rg' => $fornecedor['ie'],
+			'celular' => '*',
+			'telefone' => $this->formataTelefone($fornecedor['fone']),
+			'email' => '*',
+			'cidade_id' => $fornecedor['cidade_id']
+		]);
+		return $result->id;
+	}
+
+	private function formataCnpj($cnpj){
+		$temp = substr($cnpj, 0, 2);
+		$temp .= ".".substr($cnpj, 2, 3);
+		$temp .= ".".substr($cnpj, 5, 3);
+		$temp .= "/".substr($cnpj, 8, 4);
+		$temp .= "-".substr($cnpj, 12, 2);
+		return $temp;
+	}
+
+	private function formataCep($cep){
+		$temp = substr($cep, 0, 5);
+		$temp .= "-".substr($cep, 5, 3);
+		return $temp;
+	}
+
+	private function formataTelefone($fone){
+		$temp = substr($fone, 0, 2);
+		$temp .= " ".substr($fone, 2, 4);
+		$temp .= "-".substr($fone, 4, 4);
+		return $temp;
+	}
+
+	private function verificaAtualizacao($fornecedorEncontrado, $dadosEmitente){
+		$dadosAtualizados = [];
+
+		$verifica = $this->dadosAtualizados('Razao Social', $fornecedorEncontrado->razao_social,
+			$dadosEmitente['razaoSocial']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$verifica = $this->dadosAtualizados('Nome Fantasia', $fornecedorEncontrado->nome_fantasia,
+			$dadosEmitente['nomeFantasia']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$verifica = $this->dadosAtualizados('Rua', $fornecedorEncontrado->rua,
+			$dadosEmitente['logradouro']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$verifica = $this->dadosAtualizados('Numero', $fornecedorEncontrado->numero,
+			$dadosEmitente['numero']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$verifica = $this->dadosAtualizados('Bairro', $fornecedorEncontrado->bairro,
+			$dadosEmitente['bairro']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$verifica = $this->dadosAtualizados('IE', $fornecedorEncontrado->ie_rg,
+			$dadosEmitente['ie']);
+		if($verifica) array_push($dadosAtualizados, $verifica);
+
+		$this->atualizar($fornecedorEncontrado, $dadosEmitente);
+		return $dadosAtualizados;
+	}
+
+	private function dadosAtualizados($campo, $anterior, $atual){
+		if($anterior != $atual){
+			return $campo . " atualizado";
+		} 
+		return false;
+	}
+
+	private function atualizar($fornecedor, $dadosEmitente){
+		$fornecedor->razao_social = $dadosEmitente['razaoSocial'];
+		$fornecedor->nome_fantasia = $dadosEmitente['nomeFantasia'];
+		$fornecedor->rua = $dadosEmitente['logradouro'];
+		$fornecedor->ie_rg = $dadosEmitente['ie'];
+		$fornecedor->bairro = $dadosEmitente['bairro'];
+		$fornecedor->numero = $dadosEmitente['numero'];
+		$fornecedor->save();
+	}
+
+	public function salvar(Request $request){
+		DB::beginTransaction();
+		$data = $request->data;
+        $valorFrete = 0;
+		$frete = null;
+		if($data['frete'] != '9'){
+			$frete = Frete::create([
+				'placa' => $data ['placaVeiculo'] ?? '',
+				'valor' => $valorFrete ?? 0,
+				'tipo' => (int)$data ['frete'],
+				'qtdVolumes' => $qtdVol?? 0,
+				'uf' => $data ['ufPlaca'] ?? '',
+				'numeracaoVolumes' => $vol['numeracaoVol'] ?? '0',
+				'especie' => $vol['especie'] ?? '*',
+				'peso_liquido' => $pesoLiquido ?? 0,
+				'peso_bruto' => $pesoBruto ?? 0
+			]);
+		}
+
+		$NotaComplementar = NotaComplementar::create([
+			'cliente_id' => $data['fornecedorId'],
+			'usuario_id' => get_id_user(),
+			'natureza_id' => $data['natureza'],
+			'motivo' => $data['motivo'] ?? '',
+			'observacao' => $data['obs'] ?? '',
+			'tipo' => $data['tipo'],
+			'estado' => 0,
+			'chave_nf_origem' => $data['xmlEntrada'],
+			'nNf' => $data['nNf'],
+			'chave_gerada' => '',
+			'numero_gerado' => 0,
+			
+		]);
+
+		//salvar itens
+		foreach($data['itens'] as $i){
+			$item = ItemNotaComplementar::create([
+				'cod' => $i['codigo'],
+				'nome' => $i['xProd'],
+				'ncm' => $i['NCM'],
+				'cfop' => $i['CFOP'],
+				'valor_unit' => $i['vUnCom'],
+				'quantidade' => $i['qCom'],
+				'unidade_medida' => $i['uCom'],
+				'codBarras' => $i['codBarras'] ?? '',
+				'notacomplementar_id' => $NotaComplementar->id,
+
+				'cst_csosn' => $i['cst_csosn'],
+				'cst_pis' => $i['cst_pis'],
+				'cst_cofins' => $i['cst_cofins'],
+				'cst_ipi' => $i['cst_ipi'],
+
+				'perc_icms' => $i['perc_icms'],
+				'perc_pis' => $i['perc_pis'],
+				'perc_cofins' => $i['perc_cofins'],
+				'perc_ipi' => $i['perc_ipi'],
+				'pRedBC' => $i['pRedBC'],
+
+
+			]);
+			
+		}
+		DB::commit();
+		echo json_encode($data['itens']);
+	}
+
+	public function ver($id){
+		$devolucao = Devolucao::
+		where('id', $id)
+		->first();
+		// $xml = file_get_contents('xml_devolucao/'.$devolucao->chave_gerada.'.xml');
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+
+		$xml = simplexml_load_file($public.'xml_devolucao/'.$devolucao->chave_gerada.'.xml');
+
+		$cidade = Cidade::getCidadeCod($xml->NFe->infNFe->emit->enderEmit->cMun);
+		$dadosEmitente = [
+			'cpf' => $xml->NFe->infNFe->emit->CPF,
+			'cnpj' => $xml->NFe->infNFe->emit->CNPJ,  				
+			'razaoSocial' => $xml->NFe->infNFe->emit->xNome, 				
+			'nomeFantasia' => $xml->NFe->infNFe->emit->xFant,
+			'logradouro' => $xml->NFe->infNFe->emit->enderEmit->xLgr,
+			'numero' => $xml->NFe->infNFe->emit->enderEmit->nro,
+			'bairro' => $xml->NFe->infNFe->emit->enderEmit->xBairro,
+			'cep' => $xml->NFe->infNFe->emit->enderEmit->CEP,
+			'fone' => $xml->NFe->infNFe->emit->enderEmit->fone,
+			'ie' => $xml->NFe->infNFe->emit->IE,
+			'cidade_id' => $cidade->id
+		];
+
+		$vFrete = number_format((double) $xml->NFe->infNFe->total->ICMSTot->vFrete, 
+			2, ",", ".");
+		$vDesc = number_format((double) $xml->NFe->infNFe->total->ICMSTot->vDesc, 2, ",", ".");
+
+		$chave = substr($xml->NFe->infNFe->attributes()->Id, 3, 44);
+		$dadosNf = [
+			'chave' => $chave,
+			'vProd' => $xml->NFe->infNFe->total->ICMSTot->vProd,
+			'indPag' => $xml->NFe->infNFe->ide->indPag,
+			'nNf' => $xml->NFe->infNFe->ide->nNF,
+			'vFrete' => $vFrete,
+			'vDesc' => $vDesc,
+		];
+
+		return view('devolucao/ver')
+		->with('dadosNf', $dadosNf)
+		->with('dadosEmitente', $dadosEmitente)
+		->with('devolucao', $devolucao)
+		->with('title', 'Ver Devolução');
+
+	}
+
+	public function downloadXmlEntrada($id){
+		$devolucao = Devolucao::
+		where('id', $id)
+		->first();
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+		return response()->download($public.'xml_devolucao_entrada/'.$devolucao->chave_nf_entrada.'.xml');
+
+	}
+
+	public function downloadXmlDevolucao($id){
+		$devolucao = Devolucao::
+		where('id', $id)
+		->first();
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+		return response()->download($public . 'xml_devolucao/'.$devolucao->chave_gerada.'.xml');
+
+	}
+
+	public function delete($id){
+		$devolucao = Devolucao::
+		where('id', $id)
+		->first();
+
+		$stockMove = new StockMove();
+
+		foreach($devolucao->itens as $i){
+
+			if(getenv("DEVOLUCAO_ALTERA_ESTOQUE") == 1){
+				$produto = Produto::where('nome', $i->nome)->first();
+				if($produto != null){
+					$stockMove->pluStock(
+						(int) $produto->id, (float) str_replace(",", ".", $i->quantidade));
+				}
+			}
+		}
+
+		$devolucao->delete();
+
+		session()->flash("mensagem_sucesso", "Deletado com sucesso!");
+		return redirect('devolucao');
+	}
+
+	public function imprimir($id){
+		$notacomplementar = NotaComplementar::
+		where('id', $id)
+		->first();
+
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+		if($notacomplementar->estado == 1){
+			$xml = file_get_contents($public .'xml_notacomplementar/'.$notacomplementar->chave_gerada.'.xml');
+
+			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+
+			try {
+				$danfe = new Danfe($xml);
+				// $id = $danfe->monta($logo);
+				$pdf = $danfe->render($logo);
+				//$pdf = $danfe->render();
+
+				return response($pdf)
+				->header('Content-Type', 'application/pdf');
+			} catch (InvalidArgumentException $e) {
+				echo "Ocorreu um erro durante o processamento :" . $e->getMessage();
+			}  
+		}else if($notacomplementar->estado == 3){
+			$xml = file_get_contents($public .'xml_devolucao_cancelada/'.$notacomplementar->chave_gerada.'.xml');
+
+			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+
+			$dadosEmitente = $this->getEmitente();
+			try {
+				$danfe = new Daevento($xml, $dadosEmitente);
+				$id = $danfe->monta($logo);
+				$pdf = $danfe->render();
+				header('Content-Type: application/pdf');
+
+				echo $pdf;
+			} catch (InvalidArgumentException $e) {
+				echo "Ocorreu um erro durante o processamento :" . $e->getMessage();
+			} 
+		}
+	}
+
+	private function getEmitente(){
+		$config = ConfigNota::first();
+		return [
+			'razao' => $config->razao_social,
+			'logradouro' => $config->logradouro,
+			'numero' => $config->numero,
+			'complemento' => '',
+			'bairro' => $config->bairro,
+			'CEP' => $config->cep,
+			'municipio' => $config->municipio,
+			'UF' => $config->UF,
+			'telefone' => $config->telefone,
+			'email' => ''
+		];
+	}
+
+
+	//envio sefaz
+
+	public function enviarSefaz(Request $request){
+		$notacomplementar = NotaComplementar::
+		where('id', $request->devolucao_id)
+		->first();
+
+		$config = ConfigNota::first();
+
+		$cnpj = str_replace(".", "", $config->cnpj);
+		$cnpj = str_replace("/", "", $cnpj);
+		$cnpj = str_replace("-", "", $cnpj);
+		$cnpj = str_replace(" ", "", $cnpj);
+
+		$nfe_dev = new NotaComplementarService([
+			"atualizacao" => date('Y-m-d h:i:s'),
+			"tpAmb" => (int)$config->ambiente,
+			"razaosocial" => $config->razao_social,
+			"siglaUF" => $config->UF,
+			"cnpj" => $cnpj,
+			"schemes" => "PL_009_V4",
+			"versao" => "4.00",
+			"tokenIBPT" => "AAAAAAA",
+			"CSC" => $config->csc,
+			"CSCid" => $config->csc_id
+		], 55);
+
+		if($notacomplementar->estado == 0 || $notacomplementar->estado == 2){
+			
+		     	
+			DB::beginTransaction();
+				$ultimonfe = $config->ultimo_numero_nfe + 1;
+				$config = ConfigNota::first();
+				//$vendaLast = ConfigNota::lastNFCe();
+          		//$lastNumero = $vendaLast;
+
+				//$notacomplementar->numero_gerado =  $config->ultimo_numero_nfe;
+
+			//	$notacomplementar->save();
+			
+
+			
+			header('Content-type: text/html; charset=UTF-8');
+
+			$dev = $nfe_dev->gerarNotaComplementar($notacomplementar, $config->ultimo_numero_nfe + 1);
+			if(!isset($dev['erros_xml'])){
+
+			// file_put_contents('xml/teste2.xml', $nfe['xml']);
+
+				$signed = $nfe_dev->sign($dev['xml']);
+				$resultado = $nfe_dev->transmitir($signed, $dev['chave']);
+
+				if(substr($resultado, 0, 4) != 'Erro'){
+					$notacomplementar->chave_gerada = $dev['chave'];
+					$notacomplementar->estado = 1;
+
+					$config->ultimo_numero_nfe =  $dev['nNf'];
+					$config->save();
+				
+
+					$notacomplementar->numero_gerado = $dev['nNf'];
+					$notacomplementar->save();
+			
+				}else{
+					$notacomplementar->estado = 2;
+					$notacomplementar->save();
+			
+				}
+				echo json_encode($resultado);
+			}else{
+				return response()->json($dev['erros_xml'], 401);	
+			}
+
+		}else{
+			echo json_encode(false);
+		}
+		DB::commit();
+
+	}
+
+	public function cancelar(Request $request){
+		$notacomplementar = NotaComplementar::
+		where('id', $request->devolucao_id)
+		->first();
+
+		$config = ConfigNota::first();
+
+		$cnpj = str_replace(".", "", $config->cnpj);
+		$cnpj = str_replace("/", "", $cnpj);
+		$cnpj = str_replace("-", "", $cnpj);
+		$cnpj = str_replace(" ", "", $cnpj);
+
+		$nfe_dev = new NotaComplementarService([
+			"atualizacao" => date('Y-m-d h:i:s'),
+			"tpAmb" => (int)$config->ambiente,
+			"razaosocial" => $config->razao_social,
+			"siglaUF" => $config->UF,
+			"cnpj" => $cnpj,
+			"schemes" => "PL_009_V4",
+			"versao" => "4.00",
+			"tokenIBPT" => "AAAAAAA",
+			"CSC" => $config->csc,
+			"CSCid" => $config->csc_id
+		], 55);
+
+		$resultado = $nfe_dev->cancelar($notacomplementar, $request->justificativa);
+		if($this->isJson($resultado)){
+			
+			$notacomplementar->estado = 3;
+			$notacomplementar->save();
+			return response()->json($resultado, 200);
+
+		}
+		
+		return response()->json($resultado, 401);
+	}
+
+	private function isJson($string) {
+		json_decode($string);
+		return (json_last_error() == JSON_ERROR_NONE);
+	}
+
+	private function parseDate($date, $plusDay = false){
+		if($plusDay == false)
+			return date('Y-m-d', strtotime(str_replace("/", "-", $date)));
+		else
+			return date('Y-m-d', strtotime("+1 day",strtotime(str_replace("/", "-", $date))));
+	}
+
+	public function filtro(Request $request){
+		$dataInicial = $request->data_inicial;
+		$dataFinal = $request->data_final;
+		$fornecedor = $request->fornecedor;
+
+		if($dataInicial && !$dataFinal || !$dataInicial && $dataFinal){
+			session()->flash("mensagem_erro", "Informe as duas datas para filtrar, não somente uma!");
+			return redirect('/devolucao');
+		}
+
+		$devolucoes = Devolucao::
+		select('devolucaos.*');
+
+		if($dataInicial && $dataFinal){
+			$devolucoes->whereBetween('devolucaos.created_at', [
+				$this->parseDate($dataInicial),
+				$this->parseDate($dataFinal, true)
+			]);
+
+		}
+		if($fornecedor){
+			$devolucoes->join('fornecedors', 'fornecedors.id' , '=', 'devolucaos.fornecedor_id')
+			->where('fornecedors.razao_social', 'LIKE', "%$fornecedor%");
+
+		}
+
+		$devolucoes = $devolucoes
+		->get();
+
+		return view('devolucao/list')
+		->with('devolucoes', $devolucoes)
+		->with('devolucaoNF', true)
+		->with('title', 'Lista de Devoluções');
+
+	}
+
+	public function xmltemp($id){
+		$notacomplementar = NotaComplementar::
+		where('id', $id)
+		->first();
+
+		$config = ConfigNota::first();
+
+		$cnpj = str_replace(".", "", $config->cnpj);
+		$cnpj = str_replace("/", "", $cnpj);
+		$cnpj = str_replace("-", "", $cnpj);
+		$cnpj = str_replace(" ", "", $cnpj);
+
+		$nfe_dev = new NotaComplementarService([
+			"atualizacao" => date('Y-m-d h:i:s'),
+			"tpAmb" => (int)$config->ambiente,
+			"razaosocial" => $config->razao_social,
+			"siglaUF" => $config->UF,
+			"cnpj" => $cnpj,
+			"schemes" => "PL_009_V4",
+			"versao" => "4.00",
+			"tokenIBPT" => "AAAAAAA",
+			"CSC" => $config->csc,
+			"CSCid" => $config->csc_id
+		], 55);
+
+		if($notacomplementar->estado == 0 || $notacomplementar->estado == 2){
+			header('Content-type: text/html; charset=UTF-8');
+
+			$dev = $nfe_dev->gerarNotaComplementar($notacomplementar,1);
+			if(!isset($dev['erros_xml'])){
+
+				return response($dev['xml'])
+				->header('Content-Type', 'application/xml');
+			}else{
+				foreach($dev['erros_xml'] as $e){
+					echo $e;
+				}
+			}
+		}else{
+
+		}
+
+	}
+
+	public function edit($id){
+		$notacomplementar = NotaComplementar::find($id);
+
+		return view('notacomplementar/edit')
+		->with('notacomplementar', $notacomplementar)
+		->with('notacomplementarJs', true)
+		->with('title', 'Nota Complementar');
+	}
+
+	public function saveItem(Request $request){
+		
+		$item = ItemNotaComplementar::find($request->id);
+		$item->nome = $request->nome;
+		$item->ncm = $request->ncm;
+		$item->cfop = $request->cfop;
+		$item->perc_icms = $request->perc_icms;
+		$item->perc_pis = $request->perc_pis;
+		$item->perc_cofins = $request->perc_cofins;
+		$item->perc_ipi = $request->perc_ipi;
+		$item->cst_csosn = $request->cst_csosn;
+		$item->cst_pis = $request->cst_pis;
+		$item->cst_cofins = $request->cst_cofins;
+		$item->cst_ipi = $request->cst_ipi;
+
+		try{
+			$item->save();
+			session()->flash('mensagem_sucesso', 'Item alterado!!');
+		}catch(\Exception $e){
+			session()->flash('mensagem_erro', $e->getMessage());
+		}
+		return redirect()->back();
+	}
+}
