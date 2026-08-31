@@ -668,12 +668,14 @@ Log::info('NFC-e | Cálculo de pagamento', [
         elseif ($venda->tipo_pagamento == '04') {
             $det->tPag = '17';
             $det->vPag = $this->format($venda->valor_total);
-            // não enviar CNPJ/tBand/cAut/tpIntegra
+            $det->tpIntegra = 2;
+            // Pix sem TEF: informa card/tpIntegra=2 para atender regras da SEFAZ-MT.
 
             Log::channel('nfce')->info('PIX | NFC-e Pix sem TEF detPag montado', [
                 'venda_id' => $venda->id,
                 'tPag' => $det->tPag,
                 'vPag' => $det->vPag,
+                'tpIntegra' => $det->tpIntegra,
             ]);
         }
         // Dinheiro/outros
@@ -705,6 +707,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_1),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_1, $p1->tPag)) { $p1->tBand='99'; $p1->tpIntegra=2; }
+            if ($p1->tPag === '17') { $p1->tpIntegra=2; }
             $this->logDetPagNfce($venda, $p1, 'multiplo_1', $venda->tipo_pagamento_1);
             $nfe->tagdetPag($p1);
         }
@@ -715,6 +718,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_2),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_2, $p2->tPag)) { $p2->tBand='99'; $p2->tpIntegra=2; }
+            if ($p2->tPag === '17') { $p2->tpIntegra=2; }
             $this->logDetPagNfce($venda, $p2, 'multiplo_2', $venda->tipo_pagamento_2);
             $nfe->tagdetPag($p2);
         }
@@ -725,6 +729,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_3),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_3, $p3->tPag)) { $p3->tBand='99'; $p3->tpIntegra=2; }
+            if ($p3->tPag === '17') { $p3->tpIntegra=2; }
             $this->logDetPagNfce($venda, $p3, 'multiplo_3', $venda->tipo_pagamento_3);
             $nfe->tagdetPag($p3);
         }
@@ -1282,11 +1287,13 @@ Log::info('NFC-e | Cálculo de pagamento', [
             } elseif ($venda->tipo_pagamento == '04') {
                 $stdDetPag->tPag = '17';
                 $stdDetPag->vPag = $this->format($venda->valor_total - $venda->desconto);
+                $stdDetPag->tpIntegra = 2;
 
                 Log::channel('nfce')->info('PIX | NFC-e Pix sem TEF detPag montado', [
                     'venda_id' => $venda->id,
                     'tPag' => $stdDetPag->tPag,
                     'vPag' => $stdDetPag->vPag,
+                    'tpIntegra' => $stdDetPag->tpIntegra,
                 ]);
             } else {
 
@@ -1336,6 +1343,9 @@ Log::info('NFC-e | Cálculo de pagamento', [
                     // $stdDetPag1->cAut = '3333333';
                     $stdDetPag1->tpIntegra = 2;
                 }
+                if ($stdDetPag1->tPag === '17') {
+                    $stdDetPag1->tpIntegra = 2;
+                }
 
                 // $std->tpIntegra = 1; //incluso na NT 2015/002
                 // $std->indPag = '0'; //0= Pagamento à Vista 1= Pagamento à Prazo
@@ -1367,6 +1377,9 @@ Log::info('NFC-e | Cálculo de pagamento', [
                     // $stdDetPag2->cAut = '3333333';
                     $stdDetPag2->tpIntegra = 2;
                 }
+                if ($stdDetPag2->tPag === '17') {
+                    $stdDetPag2->tpIntegra = 2;
+                }
 
                 // $std->tpIntegra = 1; //incluso na NT 2015/002
                 // $std->indPag = '0'; //0= Pagamento à Vista 1= Pagamento à Prazo
@@ -1387,6 +1400,9 @@ Log::info('NFC-e | Cálculo de pagamento', [
                     // $stdDetPag3->CNPJ = null;
                     $stdDetPag3->tBand = '99';
                     // $stdDetPag3->cAut = '3333333';
+                    $stdDetPag3->tpIntegra = 2;
+                }
+                if ($stdDetPag3->tPag === '17') {
                     $stdDetPag3->tpIntegra = 2;
                 }
 
