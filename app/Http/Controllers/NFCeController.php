@@ -13,6 +13,7 @@ use NFePHP\DA\Legacy\FilesFolders;
 use App\Models\ConfigNota;
 use App\Helpers\StockMove;
 use App\Services\NFCeService;
+use App\Services\CupomFiscalPdf;
 use App\Services\CupomNaoFiscalPdf;
 use App\Services\NuvemFiscalNfceService;
 use Illuminate\Support\Facades\Log;
@@ -395,9 +396,7 @@ class NFCeController extends Controller
 		if($xmlPath !== null){
 			try {
 				$xml = file_get_contents($xmlPath);
-				$danfce = new Danfce($xml);
-				// $danfce->monta($logo);
-				$pdf = $danfce->render();
+				$pdf = $this->renderCupomFiscal($xml, $public.'imgs/logo.jpg');
 
 			// header('Content-Type: application/pdf');
 			// echo $pdf;
@@ -426,9 +425,7 @@ class NFCeController extends Controller
 		if($xmlPath !== null){
 			try {
 				$xml = file_get_contents($xmlPath);
-				$danfce = new Danfce($xml);
-				// $danfce->monta($logo);
-				$pdf = $danfce->render();
+				$pdf = $this->renderCupomFiscal($xml, $public.'imgs/logo.jpg');
 
 			// header('Content-Type: application/pdf');
 			// echo $pdf;
@@ -495,9 +492,7 @@ class NFCeController extends Controller
 				return response()->json("Arquivo XML não encontrado!!", 404);
 			}
 			$xml = file_get_contents($xmlPath);
-			$danfce = new Danfce($xml);
-			// $danfce->monta($logo);
-			$pdf = $danfce->render();
+			$pdf = $this->renderCupomFiscal($xml, $public.'imgs/logo.jpg');
 		}
 
 		file_put_contents(public_path('impressao_pdv/'.$id.'.pdf'), $pdf);
@@ -530,6 +525,10 @@ class NFCeController extends Controller
 		}
 
 		return (new CupomNaoFiscalPdf($venda, $pathLogo))->render();
+	}
+
+	private function renderCupomFiscal($xml, $pathLogo){
+		return (new CupomFiscalPdf($xml, $pathLogo))->render();
 	}
 
 	public function cancelar(Request $request){
