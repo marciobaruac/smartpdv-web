@@ -3,48 +3,56 @@
 namespace App\Services;
 
 use App\Models\ConfigNota;
-use Dompdf\Dompdf;
-use Dompdf\Options;
 
 class CupomNaoFiscalPdf
 {
     private $venda;
-    private $pathLogo;
 
     public function __construct($venda, ?string $pathLogo = null)
     {
         $this->venda = $venda;
-        $this->pathLogo = $pathLogo;
     }
 
     public function render(): string
     {
-        $options = new Options();
-        $options->set('isRemoteEnabled', true);
-        $options->set('isHtml5ParserEnabled', true);
+        $linhas = $this->linhas();
+        $stream = "BT\n/F1 7 Tf\n12 630 Td\n10 TL\n";
 
-        $dompdf = new Dompdf($options);
-        $dompdf->loadHtml($this->html(), 'UTF-8');
-        $dompdf->setPaper([0, 0, 226.77, 650], 'portrait');
-        $dompdf->render();
+        foreach ($linhas as $linha) {
+            $stream .= '(' . $this->pdfText($linha) . ") Tj\nT*\n";
+        }
 
-        return $dompdf->output();
+        $stream .= "ET";
+
+        return $this->pdf([$this->page($stream)]);
     }
 
-    private function html(): string
+    private function linhas(): array
     {
         $config = ConfigNota::first();
         $itens = $this->venda->itens()->with('produto')->get();
-        $qtdItens = $itens->sum(function ($item) {
-            return (float) $item->quantidade;
-        });
-        $totalProdutos = $itens->sum(function ($item) {
-            return (float) $item->quantidade * (float) $item->valor;
-        });
+        $totalProdutos = 0;
+        $qtdItens = 0;
 
-        $logo = $this->logoBase64();
-        $empresa = $this->empresaHtml($config);
-        $linhas = $itens->map(function ($item) {
+        $linhas = [];
+
+        if ($config) {
+            $linhas[] = $this->texto($config->razao_social);
+            $linhas[] = 'CNPJ:' . $this->texto($config->cnpj);
+            $linhas[] = 'IE:' . $this->texto($config->ie);
+            $linhas[] = $this->texto(trim(($config->logradouro ?? '') . ', ' . ($config->numero ?? '')));
+            $linhas[] = $this->texto(trim(($config->bairro ?? '') . ' ' . ($config->municipio ?? '') . '-' . ($config->UF ?? '')));
+            if ($config->cep) {
+                $linhas[] = 'CEP:' . $this->texto($config->cep);
+            }
+        }
+
+        $linhas[] = '';
+        $linhas[] = 'CUPOM NAO FISCAL';
+        $linhas[] = '';
+        $linhas[] = 'DESCRICAO';
+
+        foreach ($itens as $item) {
             $quantidade = (float) $item->quantidade;
             $valor = (float) $item->valor;
             $total = $quantidade * $valor;
@@ -54,87 +62,21 @@ class CupomNaoFiscalPdf
                 $nome .= ' obs: ' . $item->observacao;
             }
 
-            return '<tr><td colspan="3">'
-                . e(number_format($quantidade, 2, ',', '.'))
-                . ' x '
-                . e($nome)
-                . ' | R$ '
-                . e(number_format($valor, 2, ',', '.'))
-                . ' | R$ '
-                . e(number_format($total, 2, ',', '.'))
-                . '</td></tr>';
-        })->implode('');
+            $qtdItens += $quantidade;
+            $totalProdutos += $total;
 
-        $pagamento = $this->descricaoPagamento();
-        $data = $this->formatarData($this->venda->created_at ?? $this->venda->data_registro ?? now());
-
-        return '<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        * { box-sizing: border-box; }
-        body { font-family: DejaVu Sans, Arial, sans-serif; font-size: 10px; color: #000; margin: 0; }
-        .cupom { width: 100%; padding: 8px 10px; }
-        .topo { display: table; width: 100%; margin-bottom: 8px; }
-        .logo { display: table-cell; width: 58px; vertical-align: top; }
-        .logo img { max-width: 52px; max-height: 52px; }
-        .empresa { display: table-cell; vertical-align: top; font-size: 9px; line-height: 1.05; }
-        h1 { font-size: 10px; text-align: center; margin: 9px 0 14px; }
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; font-size: 9px; padding-bottom: 6px; }
-        td { padding: 2px 0; font-size: 9px; line-height: 1.25; }
-        .totais { margin-top: 14px; }
-        .totais td:first-child { font-weight: bold; }
-        .totais td:last-child { text-align: right; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="cupom">
-        <div class="topo">
-            <div class="logo">' . ($logo ? '<img src="' . $logo . '">' : '') . '</div>
-            <div class="empresa">' . $empresa . '</div>
-        </div>
-        <h1>CUPOM NAO FISCAL</h1>
-        <table>
-            <thead><tr><th>DESCRICAO</th><th>QT</th><th>TOT</th></tr></thead>
-            <tbody>' . $linhas . '</tbody>
-        </table>
-        <table class="totais">
-            <tr><td>Qtd. Total de Itens</td><td>' . e(number_format($qtdItens, 0, ',', '.')) . '</td></tr>
-            <tr><td>Total de Produtos</td><td>' . e(number_format($totalProdutos, 2, ',', '.')) . '</td></tr>
-            <tr><td>Total</td><td>R$ ' . e(number_format((float) $this->venda->valor_total, 2, ',', '.')) . '</td></tr>
-            <tr><td>' . e($pagamento) . '</td><td></td></tr>
-            <tr><td>Data</td><td>' . e($data) . '</td></tr>
-        </table>
-    </div>
-</body>
-</html>';
-    }
-
-    private function empresaHtml(?ConfigNota $config): string
-    {
-        if (!$config) {
-            return 'CUPOM NAO FISCAL';
+            $linhas[] = $this->texto(number_format($quantidade, 2, ',', '.') . ' x ' . $nome);
+            $linhas[] = 'R$ ' . number_format($valor, 2, ',', '.') . ' | R$ ' . number_format($total, 2, ',', '.');
         }
 
-        $endereco = trim(($config->logradouro ?? '') . ', ' . ($config->numero ?? ''));
-        $bairro = trim(($config->bairro ?? '') . ' ' . ($config->municipio ?? '') . '-' . ($config->UF ?? ''));
-        $linhas = [
-            $config->razao_social,
-            'CNPJ:' . $config->cnpj,
-            'IE:' . $config->ie,
-            $endereco,
-            $bairro . ' CEP:' . ($config->cep ?? ''),
-            $config->fone ? 'FONE:' . $config->fone : null,
-        ];
+        $linhas[] = '';
+        $linhas[] = 'Qtd. Total de Itens: ' . number_format($qtdItens, 0, ',', '.');
+        $linhas[] = 'Total de Produtos: R$ ' . number_format($totalProdutos, 2, ',', '.');
+        $linhas[] = 'Total: R$ ' . number_format((float) $this->venda->valor_total, 2, ',', '.');
+        $linhas[] = $this->texto($this->descricaoPagamento());
+        $linhas[] = 'Data: ' . $this->formatarData($this->venda->created_at ?? $this->venda->data_registro ?? now());
 
-        return collect($linhas)
-            ->filter()
-            ->map(function ($linha) {
-                return e($linha);
-            })
-            ->implode('<br>');
+        return $linhas;
     }
 
     private function descricaoPagamento(): string
@@ -159,15 +101,64 @@ class CupomNaoFiscalPdf
         }
     }
 
-    private function logoBase64(): ?string
+    private function texto($texto): string
     {
-        if (!$this->pathLogo || !file_exists($this->pathLogo)) {
-            return null;
+        $texto = (string) $texto;
+        $mapa = [
+            'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
+            'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+            'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+            'ç' => 'c', 'Á' => 'A', 'À' => 'A', 'Ã' => 'A', 'Â' => 'A',
+            'É' => 'E', 'Ê' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Õ' => 'O',
+            'Ô' => 'O', 'Ú' => 'U', 'Ç' => 'C',
+        ];
+
+        return strtr($texto, $mapa);
+    }
+
+    private function pdfText(string $texto): string
+    {
+        $texto = substr($this->texto($texto), 0, 42);
+        $texto = preg_replace('/[^\x20-\x7E]/', '', $texto);
+
+        return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $texto);
+    }
+
+    private function page(string $stream): string
+    {
+        return "<< /Length " . strlen($stream) . " >>\nstream\n" . $stream . "\nendstream";
+    }
+
+    private function pdf(array $streams): string
+    {
+        $objects = [];
+        $objects[] = "<< /Type /Catalog /Pages 2 0 R >>";
+        $objects[] = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+        $objects[] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 226.77 650] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>";
+        $objects[] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+        $objects[] = $streams[0];
+
+        $pdf = "%PDF-1.4\n";
+        $offsets = [0];
+
+        foreach ($objects as $i => $object) {
+            $offsets[] = strlen($pdf);
+            $pdf .= ($i + 1) . " 0 obj\n" . $object . "\nendobj\n";
         }
 
-        $conteudo = file_get_contents($this->pathLogo);
-        $mime = function_exists('mime_content_type') ? mime_content_type($this->pathLogo) : 'image/jpeg';
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 " . (count($objects) + 1) . "\n";
+        $pdf .= "0000000000 65535 f \n";
 
-        return 'data:' . ($mime ?: 'image/jpeg') . ';base64,' . base64_encode($conteudo);
+        for ($i = 1; $i <= count($objects); $i++) {
+            $pdf .= str_pad((string) $offsets[$i], 10, '0', STR_PAD_LEFT) . " 00000 n \n";
+        }
+
+        $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\n";
+        $pdf .= "startxref\n" . $xref . "\n%%EOF";
+
+        return $pdf;
     }
 }
