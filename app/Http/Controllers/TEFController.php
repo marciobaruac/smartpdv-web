@@ -27,7 +27,7 @@ class TEFController extends Controller
 
             $curlUpdate                             = new CurlTEF($dataTest['url'] . '/Venda/Vender/?key='.trim($dataTest['chave_integracao']));
 
-            $terminalID                             = $request->TERMINAL_ID ?: 24221;
+            $terminalID                             = $request->TERMINAL_ID ?: getenv('TEF_TERMINAL_PADRAO') ?: 24221;
 
             $arr['formaPagamentoId']                = $request->FORMA_PAGAMENTO_ID;
             $arr['terminalId']                      = $terminalID;
@@ -42,9 +42,9 @@ class TEFController extends Controller
             }
             $arr['quantidadeParcelas']              = $qtdParcelas;
 
-            // if($param->FORMA_PAGAMENTO_ID == 25){
-            //     $arr['adquirente']                      = 'PIX ITAU';
-            // }
+            if($request->FORMA_PAGAMENTO_ID == getenv('TEF_FORMA_PAGAMENTO_PIX') && getenv('TEF_ADQUIRENTE_PIX')){
+                $arr['adquirente']                  = getenv('TEF_ADQUIRENTE_PIX');
+            }
 
 
 
@@ -81,7 +81,7 @@ class TEFController extends Controller
                 $parcelas       = 0;
 				$clienteID      = 0;
 				$clienteNome	= '';
-				$terminalID		= $request->TERMINAL_ID ?: 24221;
+				$terminalID		= $request->TERMINAL_ID ?: getenv('TEF_TERMINAL_PADRAO') ?: 24221;
 
                 if(isset($request->FORMA_PAGAMENTO_ID)){
                     $formaPagamento = $request->FORMA_PAGAMENTO_ID;
@@ -288,7 +288,7 @@ class TEFController extends Controller
         $curlUpdate                             = new CurlTEF($dataTest['url'] . '/Venda/CancelarVenda?key='.trim($dataTest['chave_integracao']));
 
         $arr['intencaoVendaId']                 = $intencaoTEF;
-        $arr['terminalId']                      = $request->TERMINAL_ID ?: 24221;
+        $arr['terminalId']                      = $request->TERMINAL_ID ?: getenv('TEF_TERMINAL_PADRAO') ?: 24221;
         $arr['aguardarTefIniciarTransacao']     = true;
         $arr['senhaTecnica']                    = $dataTest['senha_tecnica'];
 
@@ -455,12 +455,12 @@ class TEFController extends Controller
     }
 
     public function getCNPJByAdquirente($adquirente){
-        $cnpj = '01425787000104';
+        $cnpj = getenv('TEF_CNPJ_ADQUIRENTE_PADRAO') ?: '01425787000104';
 
         if(strtoupper(trim($adquirente)) == 'REDE'){
-            $cnpj = '01425787000104';
+            $cnpj = getenv('TEF_CNPJ_REDE') ?: '01425787000104';
         }else if(strtoupper(trim($adquirente)) == 'CIELO'){
-            $cnpj = '01027058000191';
+            $cnpj = getenv('TEF_CNPJ_CIELO') ?: '01027058000191';
         }
 
         return $cnpj;
