@@ -9,11 +9,11 @@ use App\Models\Enums\EstadoVenda;
 use App\Models\Venda;
 use NFePHP\DA\NFe\Danfe;
 use NFePHP\DA\NFe\Danfce;
-use NFePHP\DA\NFe\Cupom;
 use NFePHP\DA\Legacy\FilesFolders;
 use App\Models\ConfigNota;
 use App\Helpers\StockMove;
 use App\Services\NFCeService;
+use App\Services\CupomNaoFiscalPdf;
 use App\Services\NuvemFiscalNfceService;
 use Illuminate\Support\Facades\Log;
 class NFCeController extends Controller
@@ -405,12 +405,6 @@ class NFCeController extends Controller
 			// header('Content-Type: application/pdf');
 			// echo $pdf;
 
-					if (class_exists(\NFePHP\DA\NFe\Cupom::class)) {
-						$cupom = new Cupom($venda, $logo);
-						$cupom->monta();
-						$pdf1 = $cupom->render();
-					}
-
 				//$pdf = $pdf + $pdf1 ;
 				return response($pdf)
 				->header('Content-Type', 'application/pdf');
@@ -481,13 +475,7 @@ class NFCeController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$pathLogo = $public.'imgs/logo.jpg';
 
-		if (!class_exists(\NFePHP\DA\NFe\Cupom::class)) {
-			return response("Classe de cupom não fiscal indisponível nesta versão do pacote fiscal.", 500);
-		}
-
-		$cupom = new Cupom($venda, $pathLogo);
-		$cupom->monta();
-		$pdf = $cupom->render();
+		$pdf = $this->renderCupomNaoFiscal($venda, $pathLogo);
 
 		// header('Content-Type: application/pdf');
 		// echo $pdf;
@@ -506,13 +494,7 @@ class NFCeController extends Controller
 		if($tipo == 'nao_fiscal'){
 			$pathLogo = $public.'imgs/logo.jpg';
 
-			if (!class_exists(\NFePHP\DA\NFe\Cupom::class)) {
-				return response()->json("Classe de cupom não fiscal indisponível nesta versão do pacote fiscal.", 500);
-			}
-
-			$cupom = new Cupom($venda, $pathLogo);
-			$cupom->monta();
-			$pdf = $cupom->render();
+			$pdf = $this->renderCupomNaoFiscal($venda, $pathLogo);
 		}else{
 			$xmlPath = $this->resolverCaminhoXmlNfce($public, (int) $venda->id, (string) $venda->chave);
 			if($xmlPath === null){
@@ -540,18 +522,23 @@ class NFCeController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$pathLogo = $public.'imgs/logo.jpg';
 
-		if (!class_exists(\NFePHP\DA\NFe\Cupom::class)) {
-			return response("Classe de cupom não fiscal indisponível nesta versão do pacote fiscal.", 500);
-		}
-
-		$cupom = new Cupom($venda, $pathLogo);
-		$cupom->monta();
-		$pdf = $cupom->render();
+		$pdf = $this->renderCupomNaoFiscal($venda, $pathLogo);
 
 		// header('Content-Type: application/pdf');
 		// echo $pdf;
 		return response($pdf)
 		->header('Content-Type', 'application/pdf');
+	}
+
+	private function renderCupomNaoFiscal($venda, $pathLogo){
+		if (class_exists(\NFePHP\DA\NFe\Cupom::class)) {
+			$cupomClass = \NFePHP\DA\NFe\Cupom::class;
+			$cupom = new $cupomClass($venda, $pathLogo);
+			$cupom->monta();
+			return $cupom->render();
+		}
+
+		return (new CupomNaoFiscalPdf($venda, $pathLogo))->render();
 	}
 
 	public function cancelar(Request $request){
