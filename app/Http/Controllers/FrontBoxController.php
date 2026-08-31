@@ -30,6 +30,7 @@ use App\Models\SangriaCaixa;
 //use App\Models\Cupom;
 use NFePHP\DA\NFe\CupomFechamento;
 use NFePHP\DA\NFe\CupomFechamentoPeriodo;
+use App\Services\CupomFechamentoPdf;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -739,9 +740,7 @@ class FrontBoxController extends Controller
     $pathLogo = $public . 'imgs/logo.jpg';
 
     // 🔸 Geração do cupom PDF
-    $cupom = new CupomFechamento($somaTiposPagamento, $somaMultFormas, $dadosfechamento, $sangrias, $pathLogo);
-    $cupom->monta();
-    $pdf = $cupom->render();
+    $pdf = (new CupomFechamentoPdf($somaTiposPagamento, $somaMultFormas, $dadosfechamento, $sangrias, $pathLogo))->render();
 
     return response($pdf)
         ->header('Content-Type', 'application/pdf');
@@ -1056,9 +1055,7 @@ class FrontBoxController extends Controller
         $public = getenv('SERVIDOR_WEB') ? 'public/' : '';
         $pathLogo = $public . 'imgs/logo.jpg';
 
-        $cupom = new CupomFechamentoPeriodo($somaTiposPagamento, $somaMultFormas, $dadosfechamento, $sangrias, $dataInicial, $dataFinal, $pathLogo);
-        $cupom->monta();
-        $pdf = $cupom->render();
+        $pdf = (new CupomFechamentoPdf($somaTiposPagamento, $somaMultFormas, $dadosfechamento, $sangrias, $pathLogo, $dataInicial, $dataFinal))->render();
         // file_put_contents($public.'pdf/CUPOM_PEDIDO.pdf',$pdf);
         // return redirect($public.'pdf/CUPOM_PEDIDO.pdf');
 

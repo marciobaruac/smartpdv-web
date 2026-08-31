@@ -131,7 +131,7 @@ class CupomNaoFiscalPdf
         return $this->venda->forma_pagamento ?: 'Pagamento';
     }
 
-    private function formatarData($data): string
+    protected function formatarData($data): string
     {
         try {
             return \Carbon\Carbon::parse($data)->format('d/m/Y H:i:s');
@@ -140,7 +140,7 @@ class CupomNaoFiscalPdf
         }
     }
 
-    private function textoBloco(array $linhas, float $x, float $y, float $fonte, float $altura): string
+    protected function textoBloco(array $linhas, float $x, float $y, float $fonte, float $altura): string
     {
         $stream = '';
         foreach ($linhas as $linha) {
@@ -151,34 +151,34 @@ class CupomNaoFiscalPdf
         return $stream;
     }
 
-    private function texto(string $texto, float $x, float $y, float $fonte = 7, bool $bold = false): string
+    protected function texto(string $texto, float $x, float $y, float $fonte = 7, bool $bold = false): string
     {
         $font = $bold ? 'F2' : 'F1';
         return "BT\n/{$font} {$fonte} Tf\n{$x} {$y} Td\n(" . $this->pdfText($texto, 60) . ") Tj\nET\n";
     }
 
-    private function textoCentro(string $texto, float $y, float $fonte = 7, bool $bold = false): string
+    protected function textoCentro(string $texto, float $y, float $fonte = 7, bool $bold = false): string
     {
         $largura = $this->larguraTexto($texto, $fonte);
         return $this->texto($texto, max(self::LEFT, (self::PAGE_WIDTH - $largura) / 2), $y, $fonte, $bold);
     }
 
-    private function textoDireita(string $texto, float $xDireita, float $y, float $fonte = 7, bool $bold = false): string
+    protected function textoDireita(string $texto, float $xDireita, float $y, float $fonte = 7, bool $bold = false): string
     {
         return $this->texto($texto, max(self::LEFT, $xDireita - $this->larguraTexto($texto, $fonte)), $y, $fonte, $bold);
     }
 
-    private function larguraTexto(string $texto, float $fonte): float
+    protected function larguraTexto(string $texto, float $fonte): float
     {
         return strlen($this->textoLimpo($texto)) * $fonte * 0.44;
     }
 
-    private function linha(float $x1, float $y1, float $x2, float $y2): string
+    protected function linha(float $x1, float $y1, float $x2, float $y2): string
     {
         return "0.4 w\n{$x1} {$y1} m\n{$x2} {$y2} l\nS\n";
     }
 
-    private function quebrarLinha(string $texto, int $limite): array
+    protected function quebrarLinha(string $texto, int $limite): array
     {
         $palavras = explode(' ', $texto);
         $linhas = [];
@@ -200,7 +200,7 @@ class CupomNaoFiscalPdf
         return $linhas ?: [''];
     }
 
-    private function textoLimpo($texto): string
+    protected function textoLimpo($texto): string
     {
         $texto = (string) $texto;
         $mapa = [
@@ -220,14 +220,14 @@ class CupomNaoFiscalPdf
         return preg_replace('/[^\x20-\x7E]/', '', $texto);
     }
 
-    private function pdfText(string $texto, int $limite): string
+    protected function pdfText(string $texto, int $limite): string
     {
         $texto = substr($this->textoLimpo($texto), 0, $limite);
 
         return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $texto);
     }
 
-    private function logoJpeg(): ?array
+    protected function logoJpeg(): ?array
     {
         if (!$this->pathLogo || preg_match('/^[a-z]+:\/\//i', $this->pathLogo) || !is_file($this->pathLogo)) {
             return null;
@@ -245,7 +245,7 @@ class CupomNaoFiscalPdf
         ];
     }
 
-    private function pdf(string $stream, ?array $logo): string
+    protected function pdf(string $stream, ?array $logo): string
     {
         $objects = [];
         $xObject = $logo ? ' /XObject << /Im1 6 0 R >>' : '';
