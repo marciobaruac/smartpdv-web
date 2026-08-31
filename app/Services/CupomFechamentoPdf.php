@@ -84,9 +84,21 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
             $y -= 24;
         }
 
+        $stream .= $this->linha(self::LEFT, $y + 2, self::RIGHT, $y + 2);
+        $stream .= $this->texto('SALDO ABERTURA', self::LEFT, $y - 9, 5.8, true);
+        $stream .= $this->textoDireita($dados['saldo_abertura'], self::RIGHT, $y - 9, 5.8, true);
+        $stream .= $this->texto('DINHEIRO VENDAS', self::LEFT, $y - 20, 5.8, true);
+        $stream .= $this->textoDireita($dados['dinheiro_vendas'], self::RIGHT, $y - 20, 5.8, true);
+        $stream .= $this->texto('DINHEIRO ESPERADO', self::LEFT, $y - 31, 6.2, true);
+        $stream .= $this->textoDireita($dados['dinheiro_esperado'], self::RIGHT, $y - 31, 6.2, true);
+        $y -= 45;
+
         $stream .= $this->texto('SALDO INFORMADO', self::LEFT, $y, 6, true);
         $stream .= $this->textoDireita($dados['saldo_informado'], self::RIGHT, $y, 6, true);
         $y -= 12;
+        $stream .= $this->texto($dados['resultado_label'], self::LEFT, $y, 6.5, true);
+        $stream .= $this->textoDireita($dados['resultado_valor'], self::RIGHT, $y, 6.5, true);
+        $y -= 14;
         $stream .= $this->texto('DATA IMPRESSAO', self::LEFT, $y, 5.4);
         $stream .= $this->textoDireita(date('d/m/Y H:i:s'), self::RIGHT, $y, 5.4);
 
@@ -97,12 +109,17 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
     {
         $pagamentos = [];
         $totalPagamentos = 0;
+        $dinheiroVendas = 0;
 
         foreach ($this->somaTiposPagamento as $item) {
             $valor = (float) ($item->total ?? 0);
+            $tipo = $item->tipo_pagamento ?? '';
             $totalPagamentos += $valor;
+            if ($tipo === '01') {
+                $dinheiroVendas += $valor;
+            }
             $pagamentos[] = [
-                'tipo' => $this->textoLimpo(VendaCaixa::getTipoPagamento($item->tipo_pagamento ?? '')),
+                'tipo' => $this->textoLimpo(VendaCaixa::getTipoPagamento($tipo)),
                 'valor' => $this->dinheiro($valor),
             ];
         }
@@ -117,6 +134,9 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
                 }
 
                 $totalPagamentos += $valor;
+                if ($this->ehDinheiro($item->{$tipoCampo} ?? '')) {
+                    $dinheiroVendas += $valor;
+                }
                 $pagamentos[] = [
                     'tipo' => $this->textoLimpo((string) ($item->{$tipoCampo} ?? 'Pagamento')),
                     'valor' => $this->dinheiro($valor),
@@ -135,6 +155,17 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
             ];
         }
 
+        $saldoAbertura = (float) ($this->dadosFechamento->valor ?? 0);
+        $saldoInformado = (float) ($this->dadosFechamento->saldo_informado_fechamento ?? 0);
+        $dinheiroEsperado = $saldoAbertura + $dinheiroVendas - $totalSangrias;
+        $diferenca = $saldoInformado - $dinheiroEsperado;
+        $resultadoLabel = 'SEM DIFERENCA';
+        if ($diferenca > 0) {
+            $resultadoLabel = 'SOBRA';
+        } elseif ($diferenca < 0) {
+            $resultadoLabel = 'FALTA';
+        }
+
         return [
             'cabecalho' => array_filter([
                 'Abertura: ' . $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null),
@@ -145,8 +176,19 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
             'total_pagamentos' => $this->dinheiro($totalPagamentos),
             'sangrias' => $sangrias,
             'total_sangrias' => $this->dinheiro($totalSangrias),
-            'saldo_informado' => $this->dinheiro((float) ($this->dadosFechamento->saldo_informado_fechamento ?? 0)),
+            'saldo_abertura' => $this->dinheiro($saldoAbertura),
+            'dinheiro_vendas' => $this->dinheiro($dinheiroVendas),
+            'dinheiro_esperado' => $this->dinheiro($dinheiroEsperado),
+            'saldo_informado' => $this->dinheiro($saldoInformado),
+            'resultado_label' => $resultadoLabel,
+            'resultado_valor' => $this->dinheiro(abs($diferenca)),
         ];
+    }
+
+    private function ehDinheiro($tipo): bool
+    {
+        $tipo = strtoupper($this->textoLimpo((string) $tipo));
+        return strpos($tipo, 'DINHEIRO') !== false;
     }
 
     private function dinheiro(float $valor): string
