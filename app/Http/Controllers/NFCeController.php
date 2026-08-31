@@ -395,12 +395,9 @@ class NFCeController extends Controller
 		if($xmlPath !== null){
 			try {
 				$xml = file_get_contents($xmlPath);
-				$logo = $this->resolverLogoImpressao($public);
-
-
 				$danfce = new Danfce($xml);
 				// $danfce->monta($logo);
-				$pdf = $logo ? $danfce->render($logo) : $danfce->render();
+				$pdf = $danfce->render();
 
 			// header('Content-Type: application/pdf');
 			// echo $pdf;
@@ -429,12 +426,9 @@ class NFCeController extends Controller
 		if($xmlPath !== null){
 			try {
 				$xml = file_get_contents($xmlPath);
-				$logo = $this->resolverLogoImpressao($public);
-
-
 				$danfce = new Danfce($xml);
 				// $danfce->monta($logo);
-				$pdf = $logo ? $danfce->render($logo) : $danfce->render();
+				$pdf = $danfce->render();
 
 			// header('Content-Type: application/pdf');
 			// echo $pdf;
@@ -501,12 +495,9 @@ class NFCeController extends Controller
 				return response()->json("Arquivo XML não encontrado!!", 404);
 			}
 			$xml = file_get_contents($xmlPath);
-			$logo = $this->resolverLogoImpressao($public);
-
-
 			$danfce = new Danfce($xml);
 			// $danfce->monta($logo);
-			$pdf = $logo ? $danfce->render($logo) : $danfce->render();
+			$pdf = $danfce->render();
 		}
 
 		file_put_contents(public_path('impressao_pdv/'.$id.'.pdf'), $pdf);
@@ -539,11 +530,6 @@ class NFCeController extends Controller
 		}
 
 		return (new CupomNaoFiscalPdf($venda, $pathLogo))->render();
-	}
-
-	private function resolverLogoImpressao($public){
-		$pathLogo = $public.'imgs/logo.jpg';
-		return is_file($pathLogo) ? realpath($pathLogo) : null;
 	}
 
 	public function cancelar(Request $request){
