@@ -700,31 +700,28 @@ Log::info('NFC-e | Cálculo de pagamento', [
         // Pagamentos múltiplos (99) – crie um detPag para cada parcela
         if ($venda->valor_pagamento_1 > 0) {
             $p1 = (object)[
-                'tPag' => $venda->tipo_pagamento_1,
+                'tPag' => $this->mapTipoPagamentoNfce($venda->tipo_pagamento_1),
                 'vPag' => $this->format($venda->valor_pagamento_1),
             ];
-            if (in_array($p1->tPag, ['03','04'])) { $p1->tBand='99'; $p1->tpIntegra=2; }
-            if ($p1->tPag === '17') { unset($p1->tBand, $p1->tpIntegra); }
+            if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_1, $p1->tPag)) { $p1->tBand='99'; $p1->tpIntegra=2; }
             $nfe->tagdetPag($p1);
         }
 
         if ($venda->tipo_pagamento_2 != null && $venda->valor_pagamento_2 > 0) {
             $p2 = (object)[
-                'tPag' => $venda->tipo_pagamento_2,
+                'tPag' => $this->mapTipoPagamentoNfce($venda->tipo_pagamento_2),
                 'vPag' => $this->format($venda->valor_pagamento_2),
             ];
-            if (in_array($p2->tPag, ['03','04'])) { $p2->tBand='99'; $p2->tpIntegra=2; }
-            if ($p2->tPag === '17') { unset($p2->tBand, $p2->tpIntegra); }
+            if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_2, $p2->tPag)) { $p2->tBand='99'; $p2->tpIntegra=2; }
             $nfe->tagdetPag($p2);
         }
 
         if ($venda->tipo_pagamento_3 != null && $venda->valor_pagamento_3 > 0) {
             $p3 = (object)[
-                'tPag' => $venda->tipo_pagamento_3,
+                'tPag' => $this->mapTipoPagamentoNfce($venda->tipo_pagamento_3),
                 'vPag' => $this->format($venda->valor_pagamento_3),
             ];
-            if (in_array($p3->tPag, ['03','04'])) { $p3->tBand='99'; $p3->tpIntegra=2; }
-            if ($p3->tPag === '17') { unset($p3->tBand, $p3->tpIntegra); }
+            if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_3, $p3->tPag)) { $p3->tBand='99'; $p3->tpIntegra=2; }
             $nfe->tagdetPag($p3);
         }
     }
@@ -1323,10 +1320,10 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 $stdDetPag1 = new \stdClass();
                 //$stdDetPag1->indPag = 0;
 
-                $stdDetPag1->tPag = $venda->tipo_pagamento_1;
+                $stdDetPag1->tPag = $this->mapTipoPagamentoNfce($venda->tipo_pagamento_1);
                 $stdDetPag1->vPag = $this->format($venda->valor_pagamento_1); //Obs: deve ser informado o valor pago pelo cliente
 
-                if ($venda->tipo_pagamento_1 == '03' || $venda->tipo_pagamento_1 == '04') {
+                if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_1, $stdDetPag1->tPag)) {
                     // $stdDetPag1->CNPJ = '12345678901234';
                     // $stdDetPag3->CNPJ = null;
 
@@ -1352,10 +1349,10 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 $stdDetPag2 = new \stdClass();
                 //$stdDetPag2->indPag = 0;
 
-                $stdDetPag2->tPag = $venda->tipo_pagamento_2;
+                $stdDetPag2->tPag = $this->mapTipoPagamentoNfce($venda->tipo_pagamento_2);
                 $stdDetPag2->vPag = $this->format($venda->valor_pagamento_2); //Obs: deve ser informado o valor pago pelo cliente
 
-                if ($venda->tipo_pagamento_2 == '03' || $venda->tipo_pagamento_2 == '04') {
+                if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_2, $stdDetPag2->tPag)) {
                     // $stdDetPag2->CNPJ = '12345678901234';
                     // $stdDetPag3->CNPJ = null;
 
@@ -1375,10 +1372,10 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 $stdDetPag3 = new \stdClass();
                 //$stdDetPag1->indPag = 0;
 
-                $stdDetPag3->tPag = $venda->tipo_pagamento_3;
+                $stdDetPag3->tPag = $this->mapTipoPagamentoNfce($venda->tipo_pagamento_3);
                 $stdDetPag3->vPag = $this->format($venda->valor_pagamento_3); //Obs: deve ser informado o valor pago pelo cliente
 
-                if ($venda->tipo_pagamento_3 == '03' || $venda->tipo_pagamento_3 == '04') {
+                if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_3, $stdDetPag3->tPag)) {
                     // $stdDetPag3->CNPJ = null;
                     $stdDetPag3->tBand = '99';
                     // $stdDetPag3->cAut = '3333333';
@@ -2112,6 +2109,27 @@ Log::info('NFC-e | Cálculo de pagamento', [
     public function format($number, $dec = 2)
     {
         return number_format((float) $number, $dec, ".", "");
+    }
+
+    private function mapTipoPagamentoNfce($tipoPagamento): string
+    {
+        $tipoPagamento = str_pad((string) $tipoPagamento, 2, '0', STR_PAD_LEFT);
+
+        if ($tipoPagamento === '02') {
+            return '04';
+        }
+
+        if ($tipoPagamento === '04') {
+            return '17';
+        }
+
+        return $tipoPagamento;
+    }
+
+    private function isPagamentoCartaoNfce($tipoPagamentoSistema, $tipoPagamentoNfce): bool
+    {
+        return in_array($tipoPagamentoNfce, ['03', '04'], true)
+            && $this->mapTipoPagamentoNfce($tipoPagamentoSistema) !== '17';
     }
 
     public function consultarNFCe($venda)
