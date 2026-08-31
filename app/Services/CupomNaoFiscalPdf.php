@@ -229,7 +229,7 @@ class CupomNaoFiscalPdf
 
     private function logoJpeg(): ?array
     {
-        if (!$this->pathLogo || !file_exists($this->pathLogo)) {
+        if (!$this->pathLogo || preg_match('/^[a-z]+:\/\//i', $this->pathLogo) || !is_file($this->pathLogo)) {
             return null;
         }
 
