@@ -7,51 +7,81 @@ use App\Models\ConfigNota;
 class CupomNaoFiscalPdf
 {
     private $venda;
+    private $pathLogo;
 
     public function __construct($venda, ?string $pathLogo = null)
     {
         $this->venda = $venda;
+        $this->pathLogo = $pathLogo;
     }
 
     public function render(): string
     {
-        $linhas = $this->linhas();
-        $stream = "BT\n/F1 7 Tf\n12 630 Td\n10 TL\n";
+        $dados = $this->dados();
+        $logo = $this->logoJpeg();
+        $stream = '';
 
-        foreach ($linhas as $linha) {
-            $stream .= '(' . $this->pdfText($linha) . ") Tj\nT*\n";
+        if ($logo) {
+            $stream .= "q\n52 0 0 52 14 584 cm\n/Im1 Do\nQ\n";
         }
 
-        $stream .= "ET";
+        $stream .= $this->textoBloco($dados['empresa'], $logo ? 72 : 14, 626, 6.4, 8);
+        $stream .= $this->linha(14, 574, 212, 574);
+        $stream .= $this->textoCentro('CUPOM NAO FISCAL', 566, 8, true);
+        $stream .= $this->linha(14, 556, 212, 556);
 
-        return $this->pdf([$this->page($stream)]);
+        $y = 543;
+        $stream .= $this->texto('DESCRICAO', 14, $y, 6.5, true);
+        $stream .= $this->texto('TOTAL', 185, $y, 6.5, true);
+        $y -= 12;
+
+        foreach ($dados['itens'] as $item) {
+            foreach ($this->quebrarLinha($item['nome'], 31) as $idx => $linha) {
+                $stream .= $this->texto($linha, 14, $y, 6.6, $idx === 0);
+                $y -= 9;
+            }
+
+            $stream .= $this->texto($item['detalhe'], 14, $y, 6.2);
+            $stream .= $this->textoDireita($item['total'], 212, $y, 6.2, true);
+            $y -= 12;
+        }
+
+        $stream .= $this->linha(14, $y + 4, 212, $y + 4);
+        $stream .= $this->texto('Qtd. Total de Itens', 14, $y - 8, 6.5, true);
+        $stream .= $this->textoDireita($dados['qtd_itens'], 212, $y - 8, 6.5, true);
+        $stream .= $this->texto('Total de Produtos', 14, $y - 18, 6.5, true);
+        $stream .= $this->textoDireita($dados['total_produtos'], 212, $y - 18, 6.5, true);
+        $stream .= $this->texto('TOTAL', 14, $y - 30, 7.5, true);
+        $stream .= $this->textoDireita($dados['total'], 212, $y - 30, 7.5, true);
+        $stream .= $this->linha(14, $y - 38, 212, $y - 38);
+        $stream .= $this->texto('Pagamento', 14, $y - 51, 6.5, true);
+        $stream .= $this->textoDireita($dados['pagamento'], 212, $y - 51, 6.5);
+        $stream .= $this->texto('Data', 14, $y - 61, 6.5, true);
+        $stream .= $this->textoDireita($dados['data'], 212, $y - 61, 6.5);
+
+        return $this->pdf($stream, $logo);
     }
 
-    private function linhas(): array
+    private function dados(): array
     {
         $config = ConfigNota::first();
         $itens = $this->venda->itens()->with('produto')->get();
         $totalProdutos = 0;
         $qtdItens = 0;
-
-        $linhas = [];
+        $linhasEmpresa = [];
 
         if ($config) {
-            $linhas[] = $this->texto($config->razao_social);
-            $linhas[] = 'CNPJ:' . $this->texto($config->cnpj);
-            $linhas[] = 'IE:' . $this->texto($config->ie);
-            $linhas[] = $this->texto(trim(($config->logradouro ?? '') . ', ' . ($config->numero ?? '')));
-            $linhas[] = $this->texto(trim(($config->bairro ?? '') . ' ' . ($config->municipio ?? '') . '-' . ($config->UF ?? '')));
-            if ($config->cep) {
-                $linhas[] = 'CEP:' . $this->texto($config->cep);
-            }
+            $linhasEmpresa = array_filter([
+                $this->textoLimpo($config->razao_social),
+                'CNPJ: ' . $this->textoLimpo($config->cnpj),
+                'IE: ' . $this->textoLimpo($config->ie),
+                $this->textoLimpo(trim(($config->logradouro ?? '') . ', ' . ($config->numero ?? ''))),
+                $this->textoLimpo(trim(($config->bairro ?? '') . ' ' . ($config->municipio ?? '') . '-' . ($config->UF ?? ''))),
+                $config->cep ? 'CEP: ' . $this->textoLimpo($config->cep) : null,
+            ]);
         }
 
-        $linhas[] = '';
-        $linhas[] = 'CUPOM NAO FISCAL';
-        $linhas[] = '';
-        $linhas[] = 'DESCRICAO';
-
+        $linhasItens = [];
         foreach ($itens as $item) {
             $quantidade = (float) $item->quantidade;
             $valor = (float) $item->valor;
@@ -65,18 +95,22 @@ class CupomNaoFiscalPdf
             $qtdItens += $quantidade;
             $totalProdutos += $total;
 
-            $linhas[] = $this->texto(number_format($quantidade, 2, ',', '.') . ' x ' . $nome);
-            $linhas[] = 'R$ ' . number_format($valor, 2, ',', '.') . ' | R$ ' . number_format($total, 2, ',', '.');
+            $linhasItens[] = [
+                'nome' => $this->textoLimpo($nome),
+                'detalhe' => number_format($quantidade, 2, ',', '.') . ' x R$ ' . number_format($valor, 2, ',', '.'),
+                'total' => 'R$ ' . number_format($total, 2, ',', '.'),
+            ];
         }
 
-        $linhas[] = '';
-        $linhas[] = 'Qtd. Total de Itens: ' . number_format($qtdItens, 0, ',', '.');
-        $linhas[] = 'Total de Produtos: R$ ' . number_format($totalProdutos, 2, ',', '.');
-        $linhas[] = 'Total: R$ ' . number_format((float) $this->venda->valor_total, 2, ',', '.');
-        $linhas[] = $this->texto($this->descricaoPagamento());
-        $linhas[] = 'Data: ' . $this->formatarData($this->venda->created_at ?? $this->venda->data_registro ?? now());
-
-        return $linhas;
+        return [
+            'empresa' => $linhasEmpresa ?: ['CUPOM NAO FISCAL'],
+            'itens' => $linhasItens,
+            'qtd_itens' => number_format($qtdItens, 0, ',', '.'),
+            'total_produtos' => 'R$ ' . number_format($totalProdutos, 2, ',', '.'),
+            'total' => 'R$ ' . number_format((float) $this->venda->valor_total, 2, ',', '.'),
+            'pagamento' => $this->textoLimpo($this->descricaoPagamento()),
+            'data' => $this->formatarData($this->venda->created_at ?? $this->venda->data_registro ?? now()),
+        ];
     }
 
     private function descricaoPagamento(): string
@@ -101,7 +135,67 @@ class CupomNaoFiscalPdf
         }
     }
 
-    private function texto($texto): string
+    private function textoBloco(array $linhas, float $x, float $y, float $fonte, float $altura): string
+    {
+        $stream = '';
+        foreach ($linhas as $linha) {
+            $stream .= $this->texto($linha, $x, $y, $fonte, true);
+            $y -= $altura;
+        }
+
+        return $stream;
+    }
+
+    private function texto(string $texto, float $x, float $y, float $fonte = 7, bool $bold = false): string
+    {
+        $font = $bold ? 'F2' : 'F1';
+        return "BT\n/{$font} {$fonte} Tf\n{$x} {$y} Td\n(" . $this->pdfText($texto, 60) . ") Tj\nET\n";
+    }
+
+    private function textoCentro(string $texto, float $y, float $fonte = 7, bool $bold = false): string
+    {
+        $largura = $this->larguraTexto($texto, $fonte);
+        return $this->texto($texto, max(14, (226.77 - $largura) / 2), $y, $fonte, $bold);
+    }
+
+    private function textoDireita(string $texto, float $xDireita, float $y, float $fonte = 7, bool $bold = false): string
+    {
+        return $this->texto($texto, max(14, $xDireita - $this->larguraTexto($texto, $fonte)), $y, $fonte, $bold);
+    }
+
+    private function larguraTexto(string $texto, float $fonte): float
+    {
+        return strlen($this->textoLimpo($texto)) * $fonte * 0.46;
+    }
+
+    private function linha(float $x1, float $y1, float $x2, float $y2): string
+    {
+        return "0.4 w\n{$x1} {$y1} m\n{$x2} {$y2} l\nS\n";
+    }
+
+    private function quebrarLinha(string $texto, int $limite): array
+    {
+        $palavras = explode(' ', $texto);
+        $linhas = [];
+        $linha = '';
+
+        foreach ($palavras as $palavra) {
+            if (strlen(trim($linha . ' ' . $palavra)) > $limite && $linha !== '') {
+                $linhas[] = $linha;
+                $linha = $palavra;
+            } else {
+                $linha = trim($linha . ' ' . $palavra);
+            }
+        }
+
+        if ($linha !== '') {
+            $linhas[] = $linha;
+        }
+
+        return $linhas ?: [''];
+    }
+
+    private function textoLimpo($texto): string
     {
         $texto = (string) $texto;
         $mapa = [
@@ -113,32 +207,55 @@ class CupomNaoFiscalPdf
             'ç' => 'c', 'Á' => 'A', 'À' => 'A', 'Ã' => 'A', 'Â' => 'A',
             'É' => 'E', 'Ê' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Õ' => 'O',
             'Ô' => 'O', 'Ú' => 'U', 'Ç' => 'C',
+            'Ã¡' => 'a', 'Ã£' => 'a', 'Ã©' => 'e', 'Ãª' => 'e', 'Ã­' => 'i',
+            'Ã³' => 'o', 'Ãµ' => 'o', 'Ãº' => 'u', 'Ã§' => 'c',
         ];
+        $texto = strtr($texto, $mapa);
 
-        return strtr($texto, $mapa);
+        return preg_replace('/[^\x20-\x7E]/', '', $texto);
     }
 
-    private function pdfText(string $texto): string
+    private function pdfText(string $texto, int $limite): string
     {
-        $texto = substr($this->texto($texto), 0, 42);
-        $texto = preg_replace('/[^\x20-\x7E]/', '', $texto);
+        $texto = substr($this->textoLimpo($texto), 0, $limite);
 
         return str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $texto);
     }
 
-    private function page(string $stream): string
+    private function logoJpeg(): ?array
     {
-        return "<< /Length " . strlen($stream) . " >>\nstream\n" . $stream . "\nendstream";
+        if (!$this->pathLogo || !file_exists($this->pathLogo)) {
+            return null;
+        }
+
+        $info = @getimagesize($this->pathLogo);
+        if (!$info || ($info[2] ?? null) !== IMAGETYPE_JPEG) {
+            return null;
+        }
+
+        return [
+            'width' => $info[0],
+            'height' => $info[1],
+            'data' => file_get_contents($this->pathLogo),
+        ];
     }
 
-    private function pdf(array $streams): string
+    private function pdf(string $stream, ?array $logo): string
     {
         $objects = [];
+        $xObject = $logo ? ' /XObject << /Im1 6 0 R >>' : '';
+
         $objects[] = "<< /Type /Catalog /Pages 2 0 R >>";
         $objects[] = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
-        $objects[] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 226.77 650] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>";
+        $objects[] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 226.77 650] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>{$xObject} >> /Contents " . ($logo ? '7' : '6') . " 0 R >>";
         $objects[] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
-        $objects[] = $streams[0];
+        $objects[] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>";
+
+        if ($logo) {
+            $objects[] = "<< /Type /XObject /Subtype /Image /Width {$logo['width']} /Height {$logo['height']} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " . strlen($logo['data']) . " >>\nstream\n" . $logo['data'] . "\nendstream";
+        }
+
+        $objects[] = "<< /Length " . strlen($stream) . " >>\nstream\n" . $stream . "\nendstream";
 
         $pdf = "%PDF-1.4\n";
         $offsets = [0];
