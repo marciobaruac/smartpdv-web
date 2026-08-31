@@ -693,6 +693,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
             'tBand' => $det->tBand ?? null,
             'cAut' => $det->cAut ?? null,
         ]);
+        $this->logDetPagNfce($venda, $det, 'forma_unica', $venda->tipo_pagamento);
 
         $nfe->tagdetPag($det);
 
@@ -704,6 +705,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_1),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_1, $p1->tPag)) { $p1->tBand='99'; $p1->tpIntegra=2; }
+            $this->logDetPagNfce($venda, $p1, 'multiplo_1', $venda->tipo_pagamento_1);
             $nfe->tagdetPag($p1);
         }
 
@@ -713,6 +715,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_2),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_2, $p2->tPag)) { $p2->tBand='99'; $p2->tpIntegra=2; }
+            $this->logDetPagNfce($venda, $p2, 'multiplo_2', $venda->tipo_pagamento_2);
             $nfe->tagdetPag($p2);
         }
 
@@ -722,6 +725,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'vPag' => $this->format($venda->valor_pagamento_3),
             ];
             if ($this->isPagamentoCartaoNfce($venda->tipo_pagamento_3, $p3->tPag)) { $p3->tBand='99'; $p3->tpIntegra=2; }
+            $this->logDetPagNfce($venda, $p3, 'multiplo_3', $venda->tipo_pagamento_3);
             $nfe->tagdetPag($p3);
         }
     }
@@ -1311,6 +1315,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 'tBand' => $stdDetPag->tBand ?? null,
                 'cAut' => $stdDetPag->cAut ?? null,
             ]);
+            $this->logDetPagNfce($venda, $stdDetPag, 'venda_normal_forma_unica', $venda->tipo_pagamento);
 
             $detPag = $nfe->tagdetPag($stdDetPag);
         } else {
@@ -1335,12 +1340,14 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 // $std->tpIntegra = 1; //incluso na NT 2015/002
                 // $std->indPag = '0'; //0= Pagamento à Vista 1= Pagamento à Prazo
 
+                $this->logDetPagNfce($venda, $stdDetPag1, 'venda_normal_multiplo_1', $venda->tipo_pagamento_1);
                 $detPag = $nfe->tagdetPag($stdDetPag1);
             } else {
                 $stdDetPag = new \stdClass();
                 $stdDetPag->tPag = $venda->tipo_pagamento;
                 $stdDetPag->vPag = $this->format($venda->valor_total);
                 $stdDetPag->xPag = $venda->descricao_pag_outros;
+                $this->logDetPagNfce($venda, $stdDetPag, 'venda_normal_multiplo_fallback', $venda->tipo_pagamento);
                 $detPag = $nfe->tagdetPag($stdDetPag);
             }
 
@@ -1364,6 +1371,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 // $std->tpIntegra = 1; //incluso na NT 2015/002
                 // $std->indPag = '0'; //0= Pagamento à Vista 1= Pagamento à Prazo
 
+                $this->logDetPagNfce($venda, $stdDetPag2, 'venda_normal_multiplo_2', $venda->tipo_pagamento_2);
                 $detPag = $nfe->tagdetPag($stdDetPag2);
             }
 
@@ -1385,6 +1393,7 @@ Log::info('NFC-e | Cálculo de pagamento', [
                 // $std->tpIntegra = 1; //incluso na NT 2015/002
                 // $std->indPag = '0'; //0= Pagamento à Vista 1= Pagamento à Prazo
 
+                $this->logDetPagNfce($venda, $stdDetPag3, 'venda_normal_multiplo_3', $venda->tipo_pagamento_3);
                 $detPag = $nfe->tagdetPag($stdDetPag3);
             }
         }
@@ -2130,6 +2139,23 @@ Log::info('NFC-e | Cálculo de pagamento', [
     {
         return in_array($tipoPagamentoNfce, ['03', '04'], true)
             && $this->mapTipoPagamentoNfce($tipoPagamentoSistema) !== '17';
+    }
+
+    private function logDetPagNfce($venda, \stdClass $detPag, string $origem, $tipoPagamentoSistema): void
+    {
+        Log::channel('nfce')->info('NFC-e detPag enviado', [
+            'origem' => $origem,
+            'venda_id' => $venda->id ?? null,
+            'nfce_numero' => $venda->NFcNumero ?? null,
+            'tipo_pagamento_sistema' => $tipoPagamentoSistema,
+            'tipo_pagamento_nfce' => $detPag->tPag ?? null,
+            'valor_pagamento' => $detPag->vPag ?? null,
+            'tem_dados_cartao' => isset($detPag->tpIntegra) || isset($detPag->tBand) || isset($detPag->CNPJ) || isset($detPag->cAut),
+            'tpIntegra' => $detPag->tpIntegra ?? null,
+            'tBand' => $detPag->tBand ?? null,
+            'CNPJ' => $detPag->CNPJ ?? null,
+            'cAut' => $detPag->cAut ?? null,
+        ]);
     }
 
     public function consultarNFCe($venda)
