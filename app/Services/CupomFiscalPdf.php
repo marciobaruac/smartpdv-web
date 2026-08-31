@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use BaconQrCode\Common\ErrorCorrectionLevel;
+use BaconQrCode\Encoder\Encoder;
+
 class CupomFiscalPdf
 {
     private const PAGE_WIDTH = 164.4;
@@ -98,11 +101,8 @@ class CupomFiscalPdf
         if ($dados['qr_code']) {
             $ypag -= 4;
             $stream .= $this->textoCentro('QR Code NFC-e', $ypag, 5.4, true);
-            $ypag -= 8;
-            foreach ($this->quebrarLinha($dados['qr_code'], 38) as $linha) {
-                $stream .= $this->texto($linha, self::LEFT, $ypag, 4.2);
-                $ypag -= 5.6;
-            }
+            $ypag -= 82;
+            $stream .= $this->qrCode($dados['qr_code'], (self::PAGE_WIDTH - 72) / 2, $ypag, 72);
         }
 
         return $this->pdf($stream, $logo);
@@ -261,6 +261,42 @@ class CupomFiscalPdf
     private function linha(float $x1, float $y1, float $x2, float $y2): string
     {
         return "0.4 w\n{$x1} {$y1} m\n{$x2} {$y2} l\nS\n";
+    }
+
+    private function qrCode(string $conteudo, float $x, float $y, float $tamanho): string
+    {
+        try {
+            $qrCode = Encoder::encode($conteudo, ErrorCorrectionLevel::M(), 'UTF-8');
+            $matrix = $qrCode->getMatrix();
+            $width = $matrix->getWidth();
+            $module = $tamanho / $width;
+            $stream = "1 1 1 rg\n{$x} {$y} {$tamanho} {$tamanho} re f\n0 0 0 rg\n";
+
+            for ($row = 0; $row < $width; $row++) {
+                for ($col = 0; $col < $width; $col++) {
+                    if ($matrix->get($col, $row) === 1) {
+                        $rx = $x + ($col * $module);
+                        $ry = $y + $tamanho - (($row + 1) * $module);
+                        $stream .= $this->num($rx) . ' ' . $this->num($ry) . ' ' . $this->num($module + 0.02) . ' ' . $this->num($module + 0.02) . " re f\n";
+                    }
+                }
+            }
+
+            return $stream . "0 0 0 rg\n";
+        } catch (\Throwable $e) {
+            $stream = '';
+            foreach ($this->quebrarLinha($conteudo, 38) as $linha) {
+                $stream .= $this->texto($linha, self::LEFT, $y, 4.2);
+                $y -= 5.6;
+            }
+
+            return $stream;
+        }
+    }
+
+    private function num(float $valor): string
+    {
+        return rtrim(rtrim(number_format($valor, 3, '.', ''), '0'), '.');
     }
 
     private function quebrarLinha(string $texto, int $limite): array
