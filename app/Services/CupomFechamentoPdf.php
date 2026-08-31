@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\VendaCaixa;
+use App\Models\ConfigNota;
 
 class CupomFechamentoPdf extends CupomNaoFiscalPdf
 {
@@ -36,71 +37,57 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
         $stream = '';
 
         if ($logo) {
-            $stream .= "q\n38 0 0 38 8 592 cm\n/Im1 Do\nQ\n";
+            $stream .= "q\n45 0 0 45 8 592 cm\n/Im1 Do\nQ\n";
         }
 
-        $stream .= $this->textoBloco(['FECHAMENTO DE CAIXA'], $logo ? 54 : self::LEFT, 625, 7, 8);
-        $stream .= $this->linha(self::LEFT, 578, self::RIGHT, 578);
+        $stream .= $this->textoBloco($dados['empresa'], $logo ? 62 : self::LEFT, 635, 5.2, 6.4);
 
-        $y = 565;
-        foreach ($dados['cabecalho'] as $linha) {
-            $stream .= $this->texto($linha, self::LEFT, $y, 5.8, true);
-            $y -= 9;
-        }
-
-        $stream .= $this->linha(self::LEFT, $y, self::RIGHT, $y);
-        $y -= 12;
-        $stream .= $this->texto('FORMA DE PAGAMENTO', self::LEFT, $y, 5.8, true);
-        $stream .= $this->textoDireita('VALOR', self::RIGHT, $y, 5.8, true);
-        $y -= 10;
+        $y = 540;
+        $stream .= $this->linhaTabela('Caixa no Periodo', '', $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('Operador:', $dados['operador'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('Abertura:', $dados['abertura'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('Fechamento:', $dados['fechamento'], $y);
+        $y -= 20;
 
         foreach ($dados['pagamentos'] as $pagamento) {
-            $stream .= $this->texto($pagamento['tipo'], self::LEFT, $y, 5.6);
-            $stream .= $this->textoDireita($pagamento['valor'], self::RIGHT, $y, 5.6, true);
-            $y -= 9;
+            $stream .= $this->linhaTabela($pagamento['tipo'], $pagamento['valor'], $y);
+            $y -= 13;
         }
 
-        $stream .= $this->linha(self::LEFT, $y + 2, self::RIGHT, $y + 2);
-        $stream .= $this->texto('TOTAL RECEBIDO', self::LEFT, $y - 9, 6.5, true);
-        $stream .= $this->textoDireita($dados['total_pagamentos'], self::RIGHT, $y - 9, 6.5, true);
-        $y -= 24;
+        $stream .= $this->linhaTabela('TOTAL', $dados['total_pagamentos'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('(-) Sangria', $dados['total_sangrias'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('TOTAL GERAL', $dados['total_geral'], $y);
+        $y -= 28;
 
         if (count($dados['sangrias']) > 0) {
-            $stream .= $this->texto('SANGRIAS', self::LEFT, $y, 5.8, true);
-            $stream .= $this->textoDireita('VALOR', self::RIGHT, $y, 5.8, true);
-            $y -= 10;
-
             foreach ($dados['sangrias'] as $sangria) {
-                foreach ($this->quebrarLinha($sangria['descricao'], 24) as $linha) {
-                    $stream .= $this->texto($linha, self::LEFT, $y, 5.4);
-                    $y -= 8;
-                }
-                $stream .= $this->textoDireita($sangria['valor'], self::RIGHT, $y + 8, 5.4, true);
+                $stream .= $this->linhaTabela($sangria['descricao'], $sangria['valor'], $y);
+                $y -= 13;
             }
-
-            $stream .= $this->linha(self::LEFT, $y + 2, self::RIGHT, $y + 2);
-            $stream .= $this->texto('TOTAL SANGRIAS', self::LEFT, $y - 9, 6, true);
-            $stream .= $this->textoDireita($dados['total_sangrias'], self::RIGHT, $y - 9, 6, true);
-            $y -= 24;
+            $y -= 10;
         }
 
-        $stream .= $this->linha(self::LEFT, $y + 2, self::RIGHT, $y + 2);
-        $stream .= $this->texto('SALDO ABERTURA', self::LEFT, $y - 9, 5.8, true);
-        $stream .= $this->textoDireita($dados['saldo_abertura'], self::RIGHT, $y - 9, 5.8, true);
-        $stream .= $this->texto('DINHEIRO VENDAS', self::LEFT, $y - 20, 5.8, true);
-        $stream .= $this->textoDireita($dados['dinheiro_vendas'], self::RIGHT, $y - 20, 5.8, true);
-        $stream .= $this->texto('DINHEIRO ESPERADO', self::LEFT, $y - 31, 6.2, true);
-        $stream .= $this->textoDireita($dados['dinheiro_esperado'], self::RIGHT, $y - 31, 6.2, true);
-        $y -= 45;
+        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
+        $y -= 16;
+        $stream .= $this->textoCentro('APURACAO SALDO CAIXA DINHEIRO', $y, 5.9, true);
+        $y -= 16;
+        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
+        $y -= 15;
 
-        $stream .= $this->texto('SALDO INFORMADO', self::LEFT, $y, 6, true);
-        $stream .= $this->textoDireita($dados['saldo_informado'], self::RIGHT, $y, 6, true);
-        $y -= 12;
-        $stream .= $this->texto($dados['resultado_label'], self::LEFT, $y, 6.5, true);
-        $stream .= $this->textoDireita($dados['resultado_valor'], self::RIGHT, $y, 6.5, true);
-        $y -= 14;
-        $stream .= $this->texto('DATA IMPRESSAO', self::LEFT, $y, 5.4);
-        $stream .= $this->textoDireita(date('d/m/Y H:i:s'), self::RIGHT, $y, 5.4);
+        $stream .= $this->linhaTabela('Saldo Inicial Troco', $dados['saldo_abertura'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('(Troco + Dinheiro) - Sangria', $dados['dinheiro_esperado'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela('Saldo Informado', $dados['saldo_informado'], $y);
+        $y -= 13;
+        $stream .= $this->linhaTabela($dados['resultado_label'], $dados['resultado_valor'], $y);
+        $y -= 28;
+        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
 
         return $this->pdf($stream, $logo);
     }
@@ -159,21 +146,21 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
         $saldoInformado = (float) ($this->dadosFechamento->saldo_informado_fechamento ?? 0);
         $dinheiroEsperado = $saldoAbertura + $dinheiroVendas - $totalSangrias;
         $diferenca = $saldoInformado - $dinheiroEsperado;
-        $resultadoLabel = 'SEM DIFERENCA';
+        $resultadoLabel = 'Sem diferenca';
         if ($diferenca > 0) {
-            $resultadoLabel = 'SOBRA';
+            $resultadoLabel = 'Sobra no Caixa';
         } elseif ($diferenca < 0) {
-            $resultadoLabel = 'FALTA';
+            $resultadoLabel = 'Falta no Caixa';
         }
 
         return [
-            'cabecalho' => array_filter([
-                'Abertura: ' . $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null),
-                'Fechamento: ' . $this->formatarData($this->dadosFechamento->updated_at ?? null),
-                $this->dataInicial && $this->dataFinal ? 'Periodo: ' . $this->dataInicial . ' ate ' . $this->dataFinal : null,
-            ]),
+            'empresa' => $this->empresa(),
+            'operador' => $this->textoLimpo($this->dadosFechamento->usuario->nome ?? ''),
+            'abertura' => $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null),
+            'fechamento' => $this->formatarData($this->dadosFechamento->updated_at ?? null),
             'pagamentos' => $pagamentos ?: [['tipo' => 'Sem vendas', 'valor' => $this->dinheiro(0)]],
             'total_pagamentos' => $this->dinheiro($totalPagamentos),
+            'total_geral' => $this->dinheiro($totalPagamentos - $totalSangrias),
             'sangrias' => $sangrias,
             'total_sangrias' => $this->dinheiro($totalSangrias),
             'saldo_abertura' => $this->dinheiro($saldoAbertura),
@@ -183,6 +170,48 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
             'resultado_label' => $resultadoLabel,
             'resultado_valor' => $this->dinheiro(abs($diferenca)),
         ];
+    }
+
+    private function linhaTabela(string $label, string $valor, float $y): string
+    {
+        $stream = $this->retangulo(8, $y - 8, 74, 12);
+        $stream .= $this->retangulo(82, $y - 8, 62, 12);
+        $fonteLabel = strlen($this->textoLimpo($label)) > 22 ? 4.7 : 5.5;
+        $stream .= $this->texto($this->limitarTexto($label, 28), 10, $y - 4, $fonteLabel, true);
+        $stream .= $this->textoDireita($this->limitarTexto($valor, 16), 140, $y - 4, 5.3, true);
+        return $stream;
+    }
+
+    private function limitarTexto(string $texto, int $limite): string
+    {
+        $texto = $this->textoLimpo($texto);
+        if (strlen($texto) <= $limite) {
+            return $texto;
+        }
+
+        return substr($texto, 0, $limite);
+    }
+
+    private function retangulo(float $x, float $y, float $w, float $h): string
+    {
+        return "0.4 w\n{$x} {$y} {$w} {$h} re\nS\n";
+    }
+
+    private function empresa(): array
+    {
+        $config = ConfigNota::first();
+        if (!$config) {
+            return ['FECHAMENTO DE CAIXA'];
+        }
+
+        return array_filter([
+            $this->textoLimpo($config->razao_social),
+            'CNPJ:' . $this->textoLimpo($config->cnpj),
+            'IE:' . $this->textoLimpo($config->ie),
+            $this->textoLimpo(trim(($config->logradouro ?? '') . ' ' . ($config->numero ?? ''))),
+            $this->textoLimpo(trim(($config->bairro ?? '') . '. CEP:' . ($config->cep ?? ''))),
+            $this->textoLimpo(trim(($config->municipio ?? '') . '-' . ($config->UF ?? '') . ' ' . ($config->fone ?? ''))),
+        ]);
     }
 
     private function ehDinheiro($tipo): bool
