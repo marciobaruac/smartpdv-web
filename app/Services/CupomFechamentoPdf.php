@@ -7,10 +7,10 @@ use App\Models\ConfigNota;
 
 class CupomFechamentoPdf extends CupomNaoFiscalPdf
 {
-    private const PAGE_WIDTH = 164.4;
-    private const PAGE_HEIGHT = 650;
-    private const LEFT = 8;
-    private const RIGHT = 154;
+    protected const PAGE_WIDTH = 250;
+    protected const PAGE_HEIGHT = 650;
+    protected const LEFT = 8;
+    protected const RIGHT = 238;
 
     private $somaTiposPagamento;
     private $somaMultFormas;
@@ -37,78 +37,39 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
         $stream = '';
 
         if ($logo) {
-            $stream .= "q\n45 0 0 45 8 592 cm\n/Im1 Do\nQ\n";
+            $stream .= "q\n70 0 0 52 8 580 cm\n/Im1 Do\nQ\n";
         }
 
-        $stream .= $this->textoBloco($dados['empresa'], $logo ? 62 : self::LEFT, 635, 5.2, 6.4);
+        $stream .= $this->textoBloco($dados['empresa'], $logo ? 88 : self::LEFT, 635, 6.2, 7.2);
 
-        $y = 540;
-        $stream .= $this->linhaTabela('Caixa no Periodo', '', $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('Operador:', $dados['operador'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('Abertura:', $dados['abertura'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('Fechamento:', $dados['fechamento'], $y);
-        $y -= 20;
+        $y = 548;
+        $stream .= $this->linhaTabela('Recebimentos por Forma de Pagamento', '', $y);
+        $y -= 17;
+        $stream .= $this->linhaTabela('Periodo:', $dados['periodo'], $y);
+        $y -= 28;
 
         foreach ($dados['pagamentos'] as $pagamento) {
             $stream .= $this->linhaTabela($pagamento['tipo'], $pagamento['valor'], $y);
-            $y -= 13;
+            $y -= 17;
         }
 
-        $stream .= $this->linhaTabela('TOTAL', $dados['total_pagamentos'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('(-) Sangria', $dados['total_sangrias'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('TOTAL GERAL', $dados['total_geral'], $y);
-        $y -= 28;
-
-        if (count($dados['sangrias']) > 0) {
-            foreach ($dados['sangrias'] as $sangria) {
-                $stream .= $this->linhaTabela($sangria['descricao'], $sangria['valor'], $y);
-                $y -= 13;
-            }
-            $y -= 10;
-        }
-
-        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
-        $y -= 16;
-        $stream .= $this->textoCentro('APURACAO SALDO CAIXA DINHEIRO', $y, 5.9, true);
-        $y -= 16;
-        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
-        $y -= 15;
-
-        $stream .= $this->linhaTabela('Saldo Inicial Troco', $dados['saldo_abertura'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('(Troco + Dinheiro) - Sangria', $dados['dinheiro_esperado'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela('Saldo Informado', $dados['saldo_informado'], $y);
-        $y -= 13;
-        $stream .= $this->linhaTabela($dados['resultado_label'], $dados['resultado_valor'], $y);
-        $y -= 28;
-        $stream .= $this->textoCentro('==========================', $y, 5.8, true);
+        $y -= 8;
+        $stream .= $this->linha(self::LEFT, $y + 8, self::RIGHT, $y + 8);
+        $stream .= $this->linhaTabela('TOTAL RECEBIDO', $dados['total_pagamentos'], $y);
 
         return $this->pdf($stream, $logo);
     }
 
     private function dadosFechamento(): array
     {
-        $pagamentos = [];
+        $pagamentosPorTipo = [];
         $totalPagamentos = 0;
         $dinheiroVendas = 0;
 
         foreach ($this->somaTiposPagamento as $item) {
             $valor = (float) ($item->total ?? 0);
             $tipo = $item->tipo_pagamento ?? '';
-            $totalPagamentos += $valor;
-            if ($tipo === '01') {
-                $dinheiroVendas += $valor;
-            }
-            $pagamentos[] = [
-                'tipo' => $this->textoLimpo(VendaCaixa::getTipoPagamento($tipo)),
-                'valor' => $this->dinheiro($valor),
-            ];
+            $this->somarPagamento($pagamentosPorTipo, $tipo, $valor, $totalPagamentos, $dinheiroVendas);
         }
 
         foreach ($this->somaMultFormas as $item) {
@@ -120,65 +81,79 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
                     continue;
                 }
 
-                $totalPagamentos += $valor;
-                if ($this->ehDinheiro($item->{$tipoCampo} ?? '')) {
-                    $dinheiroVendas += $valor;
-                }
-                $pagamentos[] = [
-                    'tipo' => $this->textoLimpo((string) ($item->{$tipoCampo} ?? 'Pagamento')),
-                    'valor' => $this->dinheiro($valor),
-                ];
+                $this->somarPagamento($pagamentosPorTipo, $item->{$tipoCampo} ?? '', $valor, $totalPagamentos, $dinheiroVendas);
             }
         }
 
-        $sangrias = [];
-        $totalSangrias = 0;
-        foreach ($this->sangrias as $sangria) {
-            $valor = (float) ($sangria->valor ?? 0);
-            $totalSangrias += $valor;
-            $sangrias[] = [
-                'descricao' => $this->textoLimpo((string) ($sangria->observacao ?? $sangria->descricao ?? 'Sangria')),
-                'valor' => $this->dinheiro($valor),
-            ];
-        }
+        $pagamentos = [];
+        foreach (VendaCaixa::tiposPagamento() as $tipo => $descricao) {
+            if (!isset($pagamentosPorTipo[$tipo])) {
+                continue;
+            }
 
-        $saldoAbertura = (float) ($this->dadosFechamento->valor ?? 0);
-        $saldoInformado = (float) ($this->dadosFechamento->saldo_informado_fechamento ?? 0);
-        $dinheiroEsperado = $saldoAbertura + $dinheiroVendas - $totalSangrias;
-        $diferenca = $saldoInformado - $dinheiroEsperado;
-        $resultadoLabel = 'Sem diferenca';
-        if ($diferenca > 0) {
-            $resultadoLabel = 'Sobra no Caixa';
-        } elseif ($diferenca < 0) {
-            $resultadoLabel = 'Falta no Caixa';
+            $pagamentos[] = [
+                'tipo' => $this->textoLimpo($descricao),
+                'valor' => $this->dinheiro($pagamentosPorTipo[$tipo]),
+            ];
         }
 
         return [
             'empresa' => $this->empresa(),
-            'operador' => $this->textoLimpo($this->dadosFechamento->usuario->nome ?? ''),
-            'abertura' => $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null),
-            'fechamento' => $this->formatarData($this->dadosFechamento->updated_at ?? null),
-            'pagamentos' => $pagamentos ?: [['tipo' => 'Sem vendas', 'valor' => $this->dinheiro(0)]],
+            'periodo' => $this->periodoVerificado(),
+            'pagamentos' => $pagamentos ?: [['tipo' => 'Sem recebimentos', 'valor' => $this->dinheiro(0)]],
             'total_pagamentos' => $this->dinheiro($totalPagamentos),
-            'total_geral' => $this->dinheiro($totalPagamentos - $totalSangrias),
-            'sangrias' => $sangrias,
-            'total_sangrias' => $this->dinheiro($totalSangrias),
-            'saldo_abertura' => $this->dinheiro($saldoAbertura),
-            'dinheiro_vendas' => $this->dinheiro($dinheiroVendas),
-            'dinheiro_esperado' => $this->dinheiro($dinheiroEsperado),
-            'saldo_informado' => $this->dinheiro($saldoInformado),
-            'resultado_label' => $resultadoLabel,
-            'resultado_valor' => $this->dinheiro(abs($diferenca)),
         ];
+    }
+
+    private function periodoVerificado(): string
+    {
+        if ($this->dataInicial || $this->dataFinal) {
+            $inicio = $this->dataInicial ? $this->formatarDataCurta($this->dataInicial) : '';
+            $fim = $this->dataFinal ? $this->formatarDataCurta($this->dataFinal) : '';
+            return trim($inicio . ' ate ' . $fim);
+        }
+
+        $inicio = $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null);
+        $fim = $this->formatarData($this->dadosFechamento->updated_at ?? null);
+        return $inicio . ' ate ' . $fim;
+    }
+
+    private function formatarDataCurta($data): string
+    {
+        try {
+            return \Carbon\Carbon::parse($data)->format('d/m/Y');
+        } catch (\Throwable $e) {
+            return date('d/m/Y');
+        }
+    }
+
+    private function somarPagamento(array &$pagamentosPorTipo, $tipo, float $valor, float &$totalPagamentos, float &$dinheiroVendas): void
+    {
+        $tipo = trim((string) $tipo);
+        if ($tipo === '' || $valor <= 0) {
+            return;
+        }
+
+        $tipo = str_pad($tipo, 2, '0', STR_PAD_LEFT);
+
+        if (!isset($pagamentosPorTipo[$tipo])) {
+            $pagamentosPorTipo[$tipo] = 0;
+        }
+
+        $pagamentosPorTipo[$tipo] += $valor;
+        $totalPagamentos += $valor;
+
+        if ($tipo === '01') {
+            $dinheiroVendas += $valor;
+        }
     }
 
     private function linhaTabela(string $label, string $valor, float $y): string
     {
-        $stream = $this->retangulo(8, $y - 8, 74, 12);
-        $stream .= $this->retangulo(82, $y - 8, 62, 12);
-        $fonteLabel = strlen($this->textoLimpo($label)) > 22 ? 4.7 : 5.5;
-        $stream .= $this->texto($this->limitarTexto($label, 28), 10, $y - 4, $fonteLabel, true);
-        $stream .= $this->textoDireita($this->limitarTexto($valor, 16), 140, $y - 4, 5.3, true);
+        $fonteLabel = strlen($this->textoLimpo($label)) > 30 ? 6.8 : 8.2;
+        $fonteValor = strlen($this->textoLimpo($valor)) > 24 ? 6.4 : 8.2;
+        $stream = $this->texto($this->limitarTexto($label, 44), self::LEFT, $y, $fonteLabel, true);
+        $stream .= $this->textoDireita($this->limitarTexto($valor, 34), self::RIGHT, $y, $fonteValor, true);
         return $stream;
     }
 

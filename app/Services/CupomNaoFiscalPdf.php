@@ -6,10 +6,10 @@ use App\Models\ConfigNota;
 
 class CupomNaoFiscalPdf
 {
-    private const PAGE_WIDTH = 164.4;
-    private const PAGE_HEIGHT = 650;
-    private const LEFT = 8;
-    private const RIGHT = 154;
+    protected const PAGE_WIDTH = 164.4;
+    protected const PAGE_HEIGHT = 650;
+    protected const LEFT = 8;
+    protected const RIGHT = 154;
 
     private $venda;
     private $pathLogo;
@@ -30,39 +30,39 @@ class CupomNaoFiscalPdf
             $stream .= "q\n42 0 0 42 8 592 cm\n/Im1 Do\nQ\n";
         }
 
-        $stream .= $this->textoBloco($dados['empresa'], $logo ? 54 : self::LEFT, 628, 5.2, 7);
-        $stream .= $this->linha(self::LEFT, 578, self::RIGHT, 578);
+        $stream .= $this->textoBloco($dados['empresa'], $logo ? 54 : static::LEFT, 628, 5.2, 7);
+        $stream .= $this->linha(static::LEFT, 578, static::RIGHT, 578);
         $stream .= $this->textoCentro('CUPOM NAO FISCAL', 568, 7, true);
-        $stream .= $this->linha(self::LEFT, 558, self::RIGHT, 558);
+        $stream .= $this->linha(static::LEFT, 558, static::RIGHT, 558);
 
         $y = 543;
-        $stream .= $this->texto('DESCRICAO', self::LEFT, $y, 6, true);
-        $stream .= $this->textoDireita('TOTAL', self::RIGHT, $y, 6, true);
+        $stream .= $this->texto('DESCRICAO', static::LEFT, $y, 6, true);
+        $stream .= $this->textoDireita('TOTAL', static::RIGHT, $y, 6, true);
         $y -= 12;
 
         foreach ($dados['itens'] as $item) {
             foreach ($this->quebrarLinha($item['nome'], 24) as $idx => $linha) {
-                $stream .= $this->texto($linha, self::LEFT, $y, 6, $idx === 0);
+                $stream .= $this->texto($linha, static::LEFT, $y, 6, $idx === 0);
                 $y -= 9;
             }
 
-            $stream .= $this->texto($item['detalhe'], self::LEFT, $y, 5.7);
-            $stream .= $this->textoDireita($item['total'], self::RIGHT, $y, 5.7, true);
+            $stream .= $this->texto($item['detalhe'], static::LEFT, $y, 5.7);
+            $stream .= $this->textoDireita($item['total'], static::RIGHT, $y, 5.7, true);
             $y -= 12;
         }
 
-        $stream .= $this->linha(self::LEFT, $y + 4, self::RIGHT, $y + 4);
-        $stream .= $this->texto('Qtd. Total de Itens', self::LEFT, $y - 8, 6, true);
-        $stream .= $this->textoDireita($dados['qtd_itens'], self::RIGHT, $y - 8, 6, true);
-        $stream .= $this->texto('Total de Produtos', self::LEFT, $y - 18, 6, true);
-        $stream .= $this->textoDireita($dados['total_produtos'], self::RIGHT, $y - 18, 6, true);
-        $stream .= $this->texto('TOTAL', self::LEFT, $y - 30, 7, true);
-        $stream .= $this->textoDireita($dados['total'], self::RIGHT, $y - 30, 7, true);
-        $stream .= $this->linha(self::LEFT, $y - 38, self::RIGHT, $y - 38);
-        $stream .= $this->texto('Pagamento', self::LEFT, $y - 51, 5.8, true);
-        $stream .= $this->textoDireita($dados['pagamento'], self::RIGHT, $y - 51, 5.8);
-        $stream .= $this->texto('Data', self::LEFT, $y - 61, 5.8, true);
-        $stream .= $this->textoDireita($dados['data'], self::RIGHT, $y - 61, 5.8);
+        $stream .= $this->linha(static::LEFT, $y + 4, static::RIGHT, $y + 4);
+        $stream .= $this->texto('Qtd. Total de Itens', static::LEFT, $y - 8, 6, true);
+        $stream .= $this->textoDireita($dados['qtd_itens'], static::RIGHT, $y - 8, 6, true);
+        $stream .= $this->texto('Total de Produtos', static::LEFT, $y - 18, 6, true);
+        $stream .= $this->textoDireita($dados['total_produtos'], static::RIGHT, $y - 18, 6, true);
+        $stream .= $this->texto('TOTAL', static::LEFT, $y - 30, 7, true);
+        $stream .= $this->textoDireita($dados['total'], static::RIGHT, $y - 30, 7, true);
+        $stream .= $this->linha(static::LEFT, $y - 38, static::RIGHT, $y - 38);
+        $stream .= $this->texto('Pagamento', static::LEFT, $y - 51, 5.8, true);
+        $stream .= $this->textoDireita($dados['pagamento'], static::RIGHT, $y - 51, 5.8);
+        $stream .= $this->texto('Data', static::LEFT, $y - 61, 5.8, true);
+        $stream .= $this->textoDireita($dados['data'], static::RIGHT, $y - 61, 5.8);
 
         return $this->pdf($stream, $logo);
     }
@@ -160,12 +160,12 @@ class CupomNaoFiscalPdf
     protected function textoCentro(string $texto, float $y, float $fonte = 7, bool $bold = false): string
     {
         $largura = $this->larguraTexto($texto, $fonte);
-        return $this->texto($texto, max(self::LEFT, (self::PAGE_WIDTH - $largura) / 2), $y, $fonte, $bold);
+        return $this->texto($texto, max(static::LEFT, (static::PAGE_WIDTH - $largura) / 2), $y, $fonte, $bold);
     }
 
     protected function textoDireita(string $texto, float $xDireita, float $y, float $fonte = 7, bool $bold = false): string
     {
-        return $this->texto($texto, max(self::LEFT, $xDireita - $this->larguraTexto($texto, $fonte)), $y, $fonte, $bold);
+        return $this->texto($texto, max(static::LEFT, $xDireita - $this->larguraTexto($texto, $fonte)), $y, $fonte, $bold);
     }
 
     protected function larguraTexto(string $texto, float $fonte): float
@@ -252,7 +252,7 @@ class CupomNaoFiscalPdf
 
         $objects[] = "<< /Type /Catalog /Pages 2 0 R >>";
         $objects[] = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
-        $objects[] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " . self::PAGE_WIDTH . " " . self::PAGE_HEIGHT . "] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>{$xObject} >> /Contents " . ($logo ? '7' : '6') . " 0 R >>";
+        $objects[] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " . static::PAGE_WIDTH . " " . static::PAGE_HEIGHT . "] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>{$xObject} >> /Contents " . ($logo ? '7' : '6') . " 0 R >>";
         $objects[] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
         $objects[] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>";
 
