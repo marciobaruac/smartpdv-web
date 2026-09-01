@@ -28,8 +28,6 @@ use App\Models\ItemPedidoComplementoLocal;
 use App\Models\ProdutoListaPreco;
 use App\Models\SangriaCaixa;
 //use App\Models\Cupom;
-use NFePHP\DA\NFe\CupomFechamento;
-use NFePHP\DA\NFe\CupomFechamentoPeriodo;
 use App\Services\CupomFechamentoPdf;
 
 use Illuminate\Support\Facades\DB;
