@@ -45,15 +45,25 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
 
         $stream .= $this->textoBloco($dados['empresa'], $logo ? 54 : self::LEFT, 628, 5.2, 7);
 
+        $periodoInformado = $this->temPeriodoInformado();
+
         $y = 548;
-        $stream .= $this->linhaTabela('Caixa no Periodo', '', $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('Operador:', $dados['operador'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('Abertura:', $dados['abertura'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('Fechamento:', $dados['fechamento'], $y);
-        $y -= 28;
+
+        if ($periodoInformado) {
+            $stream .= $this->linhaLarga('Vendas por Forma de Pagamento', $y);
+            $y -= 17;
+            $stream .= $this->linhaLarga('Periodo informado: ' . $this->periodoInformadoTexto(), $y);
+            $y -= 28;
+        } else {
+            $stream .= $this->linhaTabela('Caixa no Periodo', '', $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('Operador:', $dados['operador'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('Abertura:', $dados['abertura'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('Fechamento:', $dados['fechamento'], $y);
+            $y -= 28;
+        }
 
         foreach ($dados['pagamentos'] as $pagamento) {
             $stream .= $this->linhaTabela($pagamento['tipo'], $pagamento['valor'], $y);
@@ -61,26 +71,29 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
         }
 
         $stream .= $this->linhaTabela('TOTAL', $dados['total_pagamentos'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('(-) Sangria', $dados['total_sangria'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('TOTAL GERAL', $dados['total_geral'], $y);
 
-        $y -= 31;
-        $stream .= $this->textoCentro('========================', $y, 6, true);
-        $y -= 17;
-        $stream .= $this->textoCentro('APURACAO SALDO CAIXA', $y, 6, true);
-        $y -= 17;
-        $stream .= $this->textoCentro('========================', $y, 6, true);
+        if (!$periodoInformado) {
+            $y -= 17;
+            $stream .= $this->linhaTabela('(-) Sangria', $dados['total_sangria'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('TOTAL GERAL', $dados['total_geral'], $y);
 
-        $y -= 24;
-        $stream .= $this->linhaTabela('Saldo Inicial Troco', $dados['saldo_inicial'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('Troco + Dinheiro - Sangria', $dados['saldo_apurado'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela('Saldo Informado', $dados['saldo_informado'], $y);
-        $y -= 17;
-        $stream .= $this->linhaTabela($dados['descricao_diferenca'], $dados['diferenca'], $y);
+            $y -= 31;
+            $stream .= $this->textoCentro('========================', $y, 6, true);
+            $y -= 17;
+            $stream .= $this->textoCentro('APURACAO SALDO CAIXA', $y, 6, true);
+            $y -= 17;
+            $stream .= $this->textoCentro('========================', $y, 6, true);
+
+            $y -= 24;
+            $stream .= $this->linhaTabela('Saldo Inicial Troco', $dados['saldo_inicial'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('Troco + Dinheiro - Sangria', $dados['saldo_apurado'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela('Saldo Informado', $dados['saldo_informado'], $y);
+            $y -= 17;
+            $stream .= $this->linhaTabela($dados['descricao_diferenca'], $dados['diferenca'], $y);
+        }
 
         $y -= 31;
         $stream .= $this->textoCentro('========================', $y, 6, true);
@@ -159,17 +172,29 @@ class CupomFechamentoPdf extends CupomNaoFiscalPdf
         ];
     }
 
-    private function periodoVerificado(): string
+    private function temPeriodoInformado(): bool
     {
-        if ($this->dataInicial || $this->dataFinal) {
-            $inicio = $this->dataInicial ? $this->formatarDataCurta($this->dataInicial) : '';
-            $fim = $this->dataFinal ? $this->formatarDataCurta($this->dataFinal) : '';
-            return trim($inicio . ' ate ' . $fim);
+        return !empty($this->dataInicial) || !empty($this->dataFinal);
+    }
+
+    private function periodoInformadoTexto(): string
+    {
+        $inicio = $this->dataInicial ? $this->formatarDataCurta($this->dataInicial) : '';
+        $fim = $this->dataFinal ? $this->formatarDataCurta($this->dataFinal) : '';
+
+        if ($inicio !== '' && $fim !== '') {
+            return $inicio . ' a ' . $fim;
         }
 
-        $inicio = $this->formatarData($this->dadosFechamento->data_registro ?? $this->dadosFechamento->created_at ?? null);
-        $fim = $this->formatarData($this->dadosFechamento->updated_at ?? null);
-        return $inicio . ' ate ' . $fim;
+        return $inicio !== '' ? $inicio : $fim;
+    }
+
+    private function linhaLarga(string $texto, float $y): string
+    {
+        $stream = $this->retangulo(self::LEFT, $y - 4, self::LABEL_WIDTH + self::VALUE_WIDTH, self::ROW_HEIGHT);
+        $stream .= $this->texto($this->textoLimpo($texto), self::LEFT + 2, $y, 5.0, true);
+
+        return $stream;
     }
 
     private function formatarDataCurta($data): string
