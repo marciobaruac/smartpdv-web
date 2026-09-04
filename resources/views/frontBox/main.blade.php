@@ -897,6 +897,14 @@
         </div>
 
 
+        <div id="tefOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.96); z-index:99999; align-items:center; justify-content:center; flex-direction:column; text-align:center;">
+            <div>
+                <div class="spinner-border text-success" role="status" style="width:5rem; height:5rem; border-width:0.4rem;"></div>
+                <h3 id="tefOverlayTexto" style="margin-top:25px; color:#333; font-weight:bold;">Aguardando retorno do TEF...</h3>
+                <p style="color:#777;">Não feche ou atualize esta página.</p>
+            </div>
+        </div>
+
         <div class="modal fade" id="modal-cpf-nota" data-backdrop="static" tabindex="-1" role="dialog" aria-labelledby="staticBackdrop" aria-hidden="true">
             <div class="modal-dialog modal-sm" role="document">
                 <div class="modal-content">

@@ -707,6 +707,28 @@ $('#btnfechamento').click(() => {
 
 });
 
+function showTefOverlay(texto) {
+    $('#tefOverlayTexto').text(texto);
+    $('#tefOverlay').css('display', 'flex');
+}
+
+function updateTefOverlayText(texto) {
+    $('#tefOverlayTexto').text(texto);
+}
+
+function hideTefOverlay() {
+    $('#tefOverlay').css('display', 'none');
+}
+
+function reabrirModalCpfTef() {
+    $('#conclusaoBtnCPF').prop('disabled', false);
+    $('#conclusaoBtnCNPJ').prop('disabled', false);
+    $('#btn-cpf').prop('disabled', false);
+    $('#btn-cpf').removeClass('disabled');
+    $('#btn-cpf').removeClass('spinner');
+    $('#modal-cpf-nota').modal('show');
+}
+
 function checkAutorizationTEF(intencaoVendaId, inicio, flag) {
 
     if (flag < 20) {
@@ -738,27 +760,38 @@ function checkAutorizationTEF(intencaoVendaId, inicio, flag) {
                             var dadosIntencaoVendaToAdd = {};
 
                             console.log(detPagamentosExternos);
-                           
+
+                            updateTefOverlayText('Pagamento aprovado! Finalizando venda...');
                             addTEFBySession(detIntencaoVenda, detPagamentosExternos);
 
                             // showSuccess("TransaÃ§Ã£o aprovada e recebida com sucesso");
                         } else if (detIntencaoVenda.intencaoVendaStatus.id == 15) {
-                            swal('Erro', 'TransaÃ§Ã£o expirada', 'error');
+                            hideTefOverlay();
+                            reabrirModalCpfTef();
+                            swal('Erro', 'Transação expirada', 'error');
                             // showAlert("TransaÃ§Ã£o expirada");
                         } else if (detIntencaoVenda.intencaoVendaStatus.id == 18) {
-                            swal('Erro', 'Processo de cancelamento foi solicitado para essa transaÃ§Ã£o', 'error');
+                            hideTefOverlay();
+                            reabrirModalCpfTef();
+                            swal('Erro', 'Processo de cancelamento foi solicitado para essa transação', 'error');
                             //showAlert("Processo de cancelamento foi solicitado para essa transaÃ§Ã£o");
                         } else if (detIntencaoVenda.intencaoVendaStatus.id == 19) {
-                            swal('Erro', 'Sistema de pagamento recebeu a solicitaÃ§Ã£o de cancelamento para essa transaÃ§Ã£o', 'error');
+                            hideTefOverlay();
+                            reabrirModalCpfTef();
+                            swal('Erro', 'Sistema de pagamento recebeu a solicitação de cancelamento para essa transação', 'error');
                             //showAlert("Sistema de pagamento recebeu a solicitaÃ§Ã£o de cancelamento para essa transaÃ§Ã£o");
                         } else if (detIntencaoVenda.intencaoVendaStatus.id == 20) {
 
-                            swal('Erro', 'Cancelamento concluÃ­do para essa transaÃ§Ã£o', 'error');
+                            hideTefOverlay();
+                            reabrirModalCpfTef();
+                            swal('Erro', 'Cancelamento concluído para essa transação', 'error');
 
                             //showAlert("Cancelamento concluÃ­do para essa transaÃ§Ã£o");
                         } else if (detIntencaoVenda.intencaoVendaStatus.id == 25) {
 
-                            swal('Erro', 'Pagamento nÃ£o aprovado pela adquirente ou banco emissor', 'error');
+                            hideTefOverlay();
+                            reabrirModalCpfTef();
+                            swal('Erro', 'Pagamento não aprovado pela adquirente ou banco emissor', 'error');
                             //showErro("Pagamento nÃ£o aprovado pela adquirente ou banco emissor");
                         }
 
@@ -773,6 +806,8 @@ function checkAutorizationTEF(intencaoVendaId, inicio, flag) {
         }, 1000 * inicio);
 
     } else {
+        hideTefOverlay();
+        reabrirModalCpfTef();
         swal('Erro', 'TEF ficou pendente no PayGo. Verifique se existe transação presa no PayGo e tente consultar/cancelar na lista de TEF.', 'error');
     }
 }
@@ -1774,6 +1809,9 @@ function finalizarVenda(acao, noValidateTef) {
             $('#btn-cnpj').prop('disabled', true);
             $('#btn-cpf').prop('disabled', true);
 
+            $('#modal-cpf-nota').modal('hide');
+            showTefOverlay('Aguardando retorno do TEF...');
+
             $.ajax({
                 url: path + 'tef/postTransacaoTEF',
                 type: 'POST',
@@ -1793,12 +1831,23 @@ function finalizarVenda(acao, noValidateTef) {
                     $('#btn-cnpj').prop('disabled', true);
                     $('#btn-cpf').prop('disabled', true);
 
-                    checkAutorizationTEF(data.intencaoVenda.id, 10, 0);
+                    if (data && data.intencaoVenda && data.intencaoVenda.id) {
+                        checkAutorizationTEF(data.intencaoVenda.id, 10, 0);
+                    } else {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', (data && data.message) ? data.message : 'Não foi possível iniciar a transação no TEF.', 'error');
+                    }
+                },
+                error: function () {
+                    hideTefOverlay();
+                    reabrirModalCpfTef();
+                    swal('Erro', 'Falha de comunicação ao iniciar a transação no TEF.', 'error');
                 }
             });
 
         }else{
-            swal('Erro', 'CPF InvÃ¡lido!', 'error');
+            swal('Erro', 'CPF Inválido!', 'error');
         }
     }else{
 
@@ -2093,9 +2142,11 @@ function finalizarVenda(acao, noValidateTef) {
                         console.log(e)
                         $('#preloader2').css('display', 'none');
                         $('#preloader9').css('display', 'none');
+                        hideTefOverlay();
                         $('#modal-venda').modal('hide')
+                        swal('Erro', 'Falha ao salvar a venda. Tente novamente.', 'error');
                     }
-    
+
                 });
             } else {
                 // let valorUltrapassadoConfirma = true;
@@ -2498,6 +2549,7 @@ function emitirNFCe(vendaId) {
         },
         success: function (e) {
             console.log(e)
+            hideTefOverlay();
             $('#modal-cpf-nota').modal('hide')
             // $('#preloader_'+vendaId).css('display', 'none');
             $('#btn-cpf').removeClass('spinner')
@@ -2678,6 +2730,7 @@ function emitirNFCe(vendaId) {
         },
         error: function (err) {
 
+            hideTefOverlay();
             // $('#preloader_'+vendaId).css('display', 'none');
             $('#btn-cpf').removeClass('spinner')
             $('#btn-cpf').removeClass('disabled')
