@@ -1810,7 +1810,7 @@ function finalizarVenda(acao, noValidateTef) {
             $('#btn-cpf').prop('disabled', true);
 
             $('#modal-cpf-nota').modal('hide');
-            showTefOverlay('Aguardando retorno do TEF...');
+            showTefOverlay('Abrindo aplicativo PayGo...');
 
             $.ajax({
                 url: path + 'tef/postTransacaoTEF',
@@ -1832,6 +1832,7 @@ function finalizarVenda(acao, noValidateTef) {
                     $('#btn-cpf').prop('disabled', true);
 
                     if (data && data.intencaoVenda && data.intencaoVenda.id) {
+                        updateTefOverlayText('Aguardando retorno do TEF...');
                         checkAutorizationTEF(data.intencaoVenda.id, 10, 0);
                     } else {
                         hideTefOverlay();
