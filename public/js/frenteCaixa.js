@@ -718,7 +718,6 @@ function checkAutorizationTEF(intencaoVendaId, inicio, flag) {
             $.ajax({
                 url: path + 'tef/getIntencaoVendaTEF',
                 type: 'POST',
-                async: false,
                 data: {
                     INTENCAO_VENDA_ID: intencaoVendaId,
                     _token: token
@@ -1778,7 +1777,6 @@ function finalizarVenda(acao, noValidateTef) {
             $.ajax({
                 url: path + 'tef/postTransacaoTEF',
                 type: 'POST',
-                async: false,
                 data: {
                     FORMA_PAGAMENTO_ID: formaPagamentoTEF,
                     TERMINAL_ID: terminalID,
