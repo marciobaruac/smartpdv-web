@@ -2003,7 +2003,7 @@
     </script>
 
     <script type="text/javascript" src="/js/mousetrap.js"></script>
-    <script type="text/javascript" src="/js/frenteCaixa.js"></script>
+    <script type="text/javascript" src="/js/frenteCaixa.js?v={{ @filemtime(public_path('js/frenteCaixa.js')) ?: date('YmdHis') }}"></script>
 
     <script>
         jQuery(document).ready(function() {

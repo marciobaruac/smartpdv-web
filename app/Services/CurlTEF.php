@@ -39,6 +39,10 @@ class CurlTEF
         \curl_setopt($ch, \CURLOPT_RETURNTRANSFER, true);
         \curl_setopt($ch, \CURLOPT_SSL_VERIFYPEER, false);
         \curl_setopt($ch, \CURLOPT_FOLLOWLOCATION, true);
+        // Evita que a requisição fique presa indefinidamente (tela "Aguardando retorno do TEF...").
+        // O aguardo apenas inicia a transação; a conclusão é acompanhada pelo polling da IntencaoVenda.
+        \curl_setopt($ch, \CURLOPT_CONNECTTIMEOUT, 15);
+        \curl_setopt($ch, \CURLOPT_TIMEOUT, 120);
         // \curl_setopt($ch, \CURLOPT_ENCODING, '');
         // \curl_setopt($ch, \CURLOPT_MAXREDIRS, 10);
         // \curl_setopt($ch, \CURLOPT_TIMEOUT, 0);

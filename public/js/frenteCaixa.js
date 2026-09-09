@@ -731,85 +731,101 @@ function reabrirModalCpfTef() {
 
 function checkAutorizationTEF(intencaoVendaId, inicio, flag) {
 
-    if (flag < 20) {
+    // ~7,5 min consultando a cada 3s. Tempo suficiente para o cliente concluir o PIX
+    // ou digitar a senha do cartão sem que a tela fique presa em "Aguardando retorno do TEF...".
+    var MAX_TENTATIVAS_TEF = 150;
 
-        setTimeout(function () {
-
-            let token = $('#_token').val();
-
-            $.ajax({
-                url: path + 'tef/getIntencaoVendaTEF',
-                type: 'POST',
-                data: {
-                    INTENCAO_VENDA_ID: intencaoVendaId,
-                    _token: token
-                },
-                success: function (json) {
-                    var data = $.parseJSON(json);
-
-                    if (typeof data.intencoesVendas != 'undefined' && data.intencoesVendas.length > 0) {
-                        var detIntencaoVenda = data.intencoesVendas[0];
-
-                        // transaÃ§Ã£o pendente
-                        if (detIntencaoVenda.intencaoVendaStatus.id == 5 || detIntencaoVenda.intencaoVendaStatus.id == 6) {
-                            checkAutorizationTEF(detIntencaoVenda.id, 3, (flag + 1));
-
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 10) {
-                            //transaÃ§Ã£o aprovada
-                            var detPagamentosExternos = detIntencaoVenda.pagamentosExternos[0];
-                            var dadosIntencaoVendaToAdd = {};
-
-                            console.log(detPagamentosExternos);
-
-                            updateTefOverlayText('Pagamento aprovado! Finalizando venda...');
-                            addTEFBySession(detIntencaoVenda, detPagamentosExternos);
-
-                            // showSuccess("TransaÃ§Ã£o aprovada e recebida com sucesso");
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 15) {
-                            hideTefOverlay();
-                            reabrirModalCpfTef();
-                            swal('Erro', 'Transação expirada', 'error');
-                            // showAlert("TransaÃ§Ã£o expirada");
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 18) {
-                            hideTefOverlay();
-                            reabrirModalCpfTef();
-                            swal('Erro', 'Processo de cancelamento foi solicitado para essa transação', 'error');
-                            //showAlert("Processo de cancelamento foi solicitado para essa transaÃ§Ã£o");
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 19) {
-                            hideTefOverlay();
-                            reabrirModalCpfTef();
-                            swal('Erro', 'Sistema de pagamento recebeu a solicitação de cancelamento para essa transação', 'error');
-                            //showAlert("Sistema de pagamento recebeu a solicitaÃ§Ã£o de cancelamento para essa transaÃ§Ã£o");
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 20) {
-
-                            hideTefOverlay();
-                            reabrirModalCpfTef();
-                            swal('Erro', 'Cancelamento concluído para essa transação', 'error');
-
-                            //showAlert("Cancelamento concluÃ­do para essa transaÃ§Ã£o");
-                        } else if (detIntencaoVenda.intencaoVendaStatus.id == 25) {
-
-                            hideTefOverlay();
-                            reabrirModalCpfTef();
-                            swal('Erro', 'Pagamento não aprovado pela adquirente ou banco emissor', 'error');
-                            //showErro("Pagamento nÃ£o aprovado pela adquirente ou banco emissor");
-                        }
-
-                    } else {
-                        checkAutorizationTEF(intencaoVendaId, 3, (flag + 1));
-                    }
-                },
-                error: function () {
-                    checkAutorizationTEF(intencaoVendaId, 3, (flag + 1));
-                }
-            });
-        }, 1000 * inicio);
-
-    } else {
+    if (flag >= MAX_TENTATIVAS_TEF) {
         hideTefOverlay();
         reabrirModalCpfTef();
-        swal('Erro', 'TEF ficou pendente no PayGo. Verifique se existe transação presa no PayGo e tente consultar/cancelar na lista de TEF.', 'error');
+        swal({
+            title: 'TEF pendente',
+            text: 'O TEF ainda não retornou. Se o cliente já efetuou o pagamento, clique em "Consultar novamente". Caso contrário, verifique/cancele a transação na lista de TEF.',
+            icon: 'warning',
+            buttons: ['Fechar', 'Consultar novamente'],
+            dangerMode: true
+        }).then(function (v) {
+            if (v) {
+                showTefOverlay('Aguardando retorno do TEF...');
+                checkAutorizationTEF(intencaoVendaId, 3, 0);
+            }
+        });
+        return;
     }
+
+    setTimeout(function () {
+
+        let token = $('#_token').val();
+
+        $.ajax({
+            url: path + 'tef/getIntencaoVendaTEF',
+            type: 'POST',
+            data: {
+                INTENCAO_VENDA_ID: intencaoVendaId,
+                _token: token
+            },
+            success: function (json) {
+                var data = null;
+                try { data = $.parseJSON(json); } catch (e) { data = null; }
+
+                if (data && typeof data.intencoesVendas != 'undefined' && data.intencoesVendas.length > 0) {
+                    var detIntencaoVenda = data.intencoesVendas[0];
+                    var statusTEF = (detIntencaoVenda.intencaoVendaStatus && typeof detIntencaoVenda.intencaoVendaStatus.id != 'undefined')
+                        ? parseInt(detIntencaoVenda.intencaoVendaStatus.id)
+                        : 0;
+
+                    if (statusTEF == 10) {
+                        // transação aprovada
+                        var detPagamentosExternos = (detIntencaoVenda.pagamentosExternos && detIntencaoVenda.pagamentosExternos.length > 0)
+                            ? detIntencaoVenda.pagamentosExternos[0]
+                            : null;
+
+                        if (!detPagamentosExternos) {
+                            // aprovada, mas os dados do pagamento ainda não chegaram: segue consultando
+                            checkAutorizationTEF(detIntencaoVenda.id, 3, (flag + 1));
+                            return;
+                        }
+
+                        console.log(detPagamentosExternos);
+
+                        updateTefOverlayText('Pagamento aprovado! Finalizando venda...');
+                        addTEFBySession(detIntencaoVenda, detPagamentosExternos);
+
+                    } else if (statusTEF == 15) {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', 'Transação expirada', 'error');
+                    } else if (statusTEF == 18) {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', 'Processo de cancelamento foi solicitado para essa transação', 'error');
+                    } else if (statusTEF == 19) {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', 'Sistema de pagamento recebeu a solicitação de cancelamento para essa transação', 'error');
+                    } else if (statusTEF == 20) {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', 'Cancelamento concluído para essa transação', 'error');
+                    } else if (statusTEF == 25) {
+                        hideTefOverlay();
+                        reabrirModalCpfTef();
+                        swal('Erro', 'Pagamento não aprovado pela adquirente ou banco emissor', 'error');
+                    } else {
+                        // qualquer outro status (pendente / aguardando pagamento / em processamento / iniciada...)
+                        // continua consultando até aprovar, recusar, cancelar ou expirar
+                        checkAutorizationTEF(detIntencaoVenda.id, 3, (flag + 1));
+                    }
+
+                } else {
+                    checkAutorizationTEF(intencaoVendaId, 3, (flag + 1));
+                }
+            },
+            error: function () {
+                checkAutorizationTEF(intencaoVendaId, 3, (flag + 1));
+            }
+        });
+    }, 1000 * inicio);
 }
 
 function addTEFBySession(detIntencaoVenda, detPagamentosExternos) {
@@ -1776,7 +1792,10 @@ function finalizarVenda(acao, noValidateTef) {
     
     var tipoPagamento = $('#tipo-pagamento').val();
 
-    if((tipoPagamento == '07' || tipoPagamento == '08' || tipoPagamento == '09') && typeof noValidateTef == 'undefined'){
+    // Se o TEF já foi aprovado nesta venda, não inicia nova transação (evita cobrar 2x).
+    var tefJaAprovado = !!$("#tipo-pagamento option:selected").attr('data-id-pagamento-tef');
+
+    if((tipoPagamento == '07' || tipoPagamento == '08' || tipoPagamento == '09') && typeof noValidateTef == 'undefined' && !tefJaAprovado){
 
         let validCpf = validaCpf();
 
@@ -1970,12 +1989,13 @@ function finalizarVenda(acao, noValidateTef) {
                         _token: token
                     },
                     success: function (e) {
+                        hideTefOverlay();
                         if (acao == 'fiscal') {
                             $('#preloader2').css('display', 'block');
                             $('#preloader9').css('display', 'block');
-    
+
                             emitirNFCe(e.id);
-    
+
                             if (IMPRIMIR_CUPOM_AUTOMATICO == 1) {
     
                                 alert(' Venda realalizada com Sucesso !');
@@ -2144,8 +2164,13 @@ function finalizarVenda(acao, noValidateTef) {
                         $('#preloader2').css('display', 'none');
                         $('#preloader9').css('display', 'none');
                         hideTefOverlay();
+                        $('#btn-cpf').prop('disabled', false).removeClass('disabled').removeClass('spinner');
+                        $('#btn_nao_fiscal').prop('disabled', false).removeClass('disabled');
                         $('#modal-venda').modal('hide')
-                        swal('Erro', 'Falha ao salvar a venda. Tente novamente.', 'error');
+                        var _msgErroVenda = (js && (js.tipo_pagamento == '07' || js.tipo_pagamento == '08' || js.tipo_pagamento == '09'))
+                            ? 'O pagamento no TEF foi aprovado, mas houve falha ao registrar a venda. NÃO passe o cartão/PIX novamente. Clique em EMITIR para tentar salvar a venda outra vez.'
+                            : 'Falha ao salvar a venda. Tente novamente.';
+                        swal('Erro', _msgErroVenda, 'error');
                     }
 
                 });
@@ -2181,10 +2206,12 @@ function finalizarVenda(acao, noValidateTef) {
             }
         } else {
             // Materialize.toast('CPF InvÃ¡lido!', 5000);
+            hideTefOverlay();
+            reabrirModalCpfTef();
             swal('Erro', 'CPF InvÃ¡lido!', 'error')
         }
     }
- 
+
 
 }
 
@@ -2295,6 +2322,7 @@ function finalizarVendaCNPJ(acao, src) {
                     _token: token
                 },
                 success: function (e) {
+                    hideTefOverlay();
                     if (acao == 'fiscal') {
                         $('#preloader2').css('display', 'block');
                         $('#preloader9').css('display', 'block');
@@ -2454,7 +2482,10 @@ function finalizarVendaCNPJ(acao, src) {
                     console.log(e)
                     $('#preloader2').css('display', 'none');
                     $('#preloader9').css('display', 'none');
+                    hideTefOverlay();
+                    $('#btn-cnpj').prop('disabled', false).removeClass('disabled').removeClass('spinner');
                     $('#modal-venda').modal('hide')
+                    swal('Erro', 'Falha ao salvar a venda. Tente novamente.', 'error');
                 }
 
             });
@@ -2490,6 +2521,7 @@ function finalizarVendaCNPJ(acao, src) {
         }
     } else {
         // Materialize.toast('CPF InvÃ¡lido!', 5000);
+        hideTefOverlay();
         swal('Erro', 'CPF InvÃ¡lido!', 'error')
     }
 
