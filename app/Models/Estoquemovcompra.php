@@ -5,9 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class estoquemovvenda extends Model
+class Estoquemovcompra extends Model
 {
     protected $fillable = [
-		'estoquemov_id','estoquevenda_id'
+		'estoquemov_id','estoquecompra_id'
 	];
 }
