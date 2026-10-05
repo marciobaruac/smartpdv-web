@@ -153,7 +153,7 @@ class EmiteCteController extends Controller
 		if(file_exists($public.'xml_cte/'.$cte->chave.'.xml')){
 			$xml = file_get_contents($public.'xml_cte/'.$cte->chave.'.xml');
 		// $docxml = FilesFolders::readFile($xml);
-			$logo = 'data://text/plain;base64,' . base64_encode(file_get_contents($public.'imgs/logo.png'));
+			$logo = $public.'imgs/logo.png';
 
 			try {
 
@@ -197,7 +197,7 @@ class EmiteCteController extends Controller
 		if(file_exists($public.'xml_cte_correcao/'.$cte->chave.'.xml')){
 
 			$xml = file_get_contents($public.'xml_cte_correcao/'.$cte->chave.'.xml');
-			$logo = 'data://text/plain;base64,' . base64_encode(file_get_contents($public.'imgs/logo.png'));
+			$logo = $public.'imgs/logo.png';
 
 			$dadosEmitente = $this->getEmitente();
 
@@ -224,7 +224,7 @@ class EmiteCteController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		if(file_exists($public.'xml_cte_cancelada/'.$cte->chave.'.xml')){
 			$xml = file_get_contents($public.'xml_cte_cancelada/'.$cte->chave.'.xml');
-			$logo = 'data://text/plain;base64,' . base64_encode(file_get_contents($public.'imgs/logo.png'));
+			$logo = $public.'imgs/logo.png';
 
 			$dadosEmitente = $this->getEmitente();
 
@@ -418,7 +418,7 @@ class EmiteCteController extends Controller
 	private function criarPdfParaEnvio($cte){
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$xml = file_get_contents($public.'xml_cte/'.$cte->chave.'.xml');
-		$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+		$logo = $public.'imgs/logo.jpg';
 		// $docxml = FilesFolders::readFile($xml);
 
 		try {

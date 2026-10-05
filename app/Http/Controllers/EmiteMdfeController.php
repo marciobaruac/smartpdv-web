@@ -205,7 +205,7 @@ class EmiteMdfeController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		if(file_exists($public.'xml_mdfe/'.$mdfe->chave.'.xml')){
 			$xml = file_get_contents($public.'xml_mdfe/'.$mdfe->chave.'.xml');
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.png'));
+			$logo = $public.'imgs/logo.png';
 
 
 			try {
@@ -333,7 +333,7 @@ class EmiteMdfeController extends Controller
 	private function criarPdfParaEnvio($mdfe){
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$xml = file_get_contents($public.'xml_mdfe/'.$mdfe->chave.'.xml');
-		$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+		$logo = $public.'imgs/logo.jpg';
 		// $docxml = FilesFolders::readFile($xml);
 
 		try {
@@ -354,7 +354,7 @@ class EmiteMdfeController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		if(file_exists($public.'xml_mdfe/'.$chave.'.xml')){
 			$xml = file_get_contents($public.'xml_mdfe/'.$chave.'.xml');
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.png'));
+			$logo = $public.'imgs/logo.png';
 
 
 			try {

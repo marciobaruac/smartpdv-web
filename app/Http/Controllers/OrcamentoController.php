@@ -298,7 +298,7 @@ class OrcamentoController extends Controller
 			$xml = $nfe['xml'];
 
 			$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+			$logo = $public.'imgs/logo.jpg';
 
 			try {
 				$danfe = new Danfe($xml);

@@ -536,7 +536,7 @@ class DevolucaoController extends Controller
 		if($devolucao->estado == 1){
 			$xml = file_get_contents($public .'xml_devolucao/'.$devolucao->chave_gerada.'.xml');
 
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+			$logo = $public .'imgs/logo.jpg';
 
 			try {
 				$danfe = new Danfe($xml);
@@ -552,7 +552,7 @@ class DevolucaoController extends Controller
 		}else if($devolucao->estado == 3){
 			$xml = file_get_contents($public .'xml_devolucao_cancelada/'.$devolucao->chave_gerada.'.xml');
 
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+			$logo = $public .'imgs/logo.jpg';
 
 			$dadosEmitente = $this->getEmitente();
 			try {

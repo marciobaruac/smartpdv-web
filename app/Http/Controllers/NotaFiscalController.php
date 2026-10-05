@@ -624,6 +624,19 @@ class NotaFiscalController extends Controller
 			return;
 		}
 
+		// Preferência: DANFE direto da IntegraNotas quando este é o provedor ativo.
+		// Evita a geração local (sped-da), que falha em servidores com
+		// allow_url_fopen=0 ao processar a logo via wrapper data://.
+		$config = ConfigNota::first();
+		$provedor = $config ? strtolower(trim((string) ($config->provedor_nfe ?? ''))) : '';
+		if($provedor === 'integranotas'){
+			$pdf = $this->danfePdfIntegraNotas($venda);
+			if($pdf !== null){
+				return response($pdf)
+				->header('Content-Type', 'application/pdf');
+			}
+		}
+
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$caminhoXml = $public.'xml_nfe/'.$venda->chave.'.xml';
 
@@ -634,7 +647,13 @@ class NotaFiscalController extends Controller
 
 		if(file_exists($caminhoXml)){
 			$xml = file_get_contents($caminhoXml);
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+			// Passa o CAMINHO do arquivo da logo (não data://). Em servidores com
+			// allow_url_fopen=0 a sped-da usa o caminho direto e não chama
+			// getimagesize() sobre o wrapper data:// (que fica desabilitado).
+			$logo = $public.'imgs/logo.jpg';
+			if(!is_file($logo)){
+				$logo = '';
+			}
 
 			try {
 				$danfe = new Danfe($xml);
@@ -747,7 +766,7 @@ class NotaFiscalController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		if(file_exists($public.'xml_nfe/'.$venda->chave.'.xml')){
 			$xml = file_get_contents($public.'xml_nfe/'.$venda->chave.'.xml');
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+			$logo = $public.'imgs/logo.jpg';
 
 			$arquivo =$xml;
 			//$xml = simplexml_load_file($xml);
@@ -956,7 +975,7 @@ class NotaFiscalController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 
 		$xml = file_get_contents($public.'xml_nfe/'.$venda->chave.'.xml');
-		$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+		$logo = $public.'imgs/logo.jpg';
 		// $docxml = FilesFolders::readFile($xml);
 		$connector = new NetworkPrintConnector('127.0.0.1', 9100);
 		$danfcepos = new DanfcePos($connector);
@@ -973,7 +992,7 @@ class NotaFiscalController extends Controller
 			$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 			if(file_exists($public.'xml_nfe_correcao/'.$venda->chave.'.xml')){
 				$xml = file_get_contents($public.'xml_nfe_correcao/'.$venda->chave.'.xml');
-				$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+				$logo = $public.'imgs/logo.jpg';
 
 				$dadosEmitente = $this->getEmitente();
 
@@ -1007,7 +1026,7 @@ class NotaFiscalController extends Controller
 				if(file_exists($public.'xml_nfe_cancelada/'.$venda->chave.'.xml')){
 					$xml = file_get_contents($public.'xml_nfe_cancelada/'.$venda->chave.'.xml');
 
-					$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+					$logo = $public.'imgs/logo.jpg';
 
 					$dadosEmitente = $this->getEmitente();
 
@@ -1240,7 +1259,7 @@ class NotaFiscalController extends Controller
 	private function criarPdfParaEnvio($venda){
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 		$xml = file_get_contents($public.'xml_nfe/'.$venda->chave.'.xml');
-		$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+		$logo = $public.'imgs/logo.jpg';
 		// $docxml = FilesFolders::readFile($xml);
 
 		try {

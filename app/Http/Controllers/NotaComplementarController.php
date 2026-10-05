@@ -511,7 +511,7 @@ class NotaComplementarController extends Controller
 		if($notacomplementar->estado == 1){
 			$xml = file_get_contents($public .'xml_notacomplementar/'.$notacomplementar->chave_gerada.'.xml');
 
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+			$logo = $public .'imgs/logo.jpg';
 
 			try {
 				$danfe = new Danfe($xml);
@@ -527,7 +527,7 @@ class NotaComplementarController extends Controller
 		}else if($notacomplementar->estado == 3){
 			$xml = file_get_contents($public .'xml_devolucao_cancelada/'.$notacomplementar->chave_gerada.'.xml');
 
-			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public .'imgs/logo.jpg'));
+			$logo = $public .'imgs/logo.jpg';
 
 			$dadosEmitente = $this->getEmitente();
 			try {

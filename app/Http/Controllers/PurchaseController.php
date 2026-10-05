@@ -380,7 +380,7 @@ class PurchaseController extends Controller
             session()->flash('mensagem_erro', 'Xml não encontrado!');
             return redirect('/compras');
         }
-        $logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+        $logo = $public.'imgs/logo.jpg';
         // $docxml = FilesFolders::readFile($xml);
 
         try {

@@ -223,7 +223,7 @@ class NotaFiscalAppController extends Controller
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
 
 		$xml = file_get_contents($public.'xml_nfe/'.$venda->chave.'.xml');
-		$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
+		$logo = $public.'imgs/logo.jpg';
 		// $docxml = FilesFolders::readFile($xml);
 
 		try {
