@@ -701,6 +701,10 @@ Route::group(['prefix' => 'clientes'],function(){
 	Route::get('/cpfCnpjDuplicado', 'ClienteController@cpfCnpjDuplicado');
 	Route::get('/imprimir', 'ClienteController@imprimir');
 
+	Route::get('/importar', 'ClienteController@importar');
+	Route::get('/importar/modelo', 'ClienteController@importarModelo');
+	Route::post('/importar', 'ClienteController@importarProcessar');
+
 
 	Route::post('/quickSave', 'ClienteController@quickSave');
 

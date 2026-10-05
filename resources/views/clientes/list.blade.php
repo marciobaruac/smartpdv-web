@@ -12,6 +12,11 @@
 					<i class="fa fa-plus"></i>Novo Cliente
 				</a>
 			</div>
+			<div class="col-sm-12 col-lg-2 col-md-6 col-xl-2">
+				<a style="width: 100%;" href="/clientes/importar" class="btn btn-lg btn-primary">
+					<i class="fa fa-file-upload"></i>Importar
+				</a>
+			</div>
 			<!-- <div class="col-sm-12 col-lg-2 col-md-6 col-xl-2">
 
 				<a style="width: 100%;" target="_blank" href="/clientes/imprimir" class="btn btn-lg btn-info">

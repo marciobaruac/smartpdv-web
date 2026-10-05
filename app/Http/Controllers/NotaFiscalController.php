@@ -484,6 +484,23 @@ class NotaFiscalController extends Controller
 			return response()->json(['message' => 'Configure o token da IntegraNotas em Configurar Emitente > aba IntegraNotas.'], 422);
 		}
 
+		// Anti-duplicidade: se a venda já tem chave, confere o status real antes de reenviar.
+		$chaveExistente = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+		if(strlen($chaveExistente) === 44){
+			$consultaPrevia = $service->consultaChaveNFe($chaveExistente);
+			$estadoPrevio = $this->estadoNfeIntegraNotas($consultaPrevia, (bool) ($consultaPrevia['ok'] ?? false));
+			if($estadoPrevio === 'APROVADO'){
+				if($venda->estado !== 'APROVADO'){ $venda->estado = 'APROVADO'; $venda->save(); }
+				echo json_encode(trim($chaveExistente . ' Autorizada'));
+				return;
+			}
+			if($estadoPrevio === 'CANCELADO'){
+				if($venda->estado !== 'CANCELADO'){ $venda->estado = 'CANCELADO'; $venda->save(); }
+				return response()->json(['message' => 'Esta NF-e já está cancelada.'], 409);
+			}
+			// REJEITADO/PENDENTE: segue para reenvio com o mesmo número já reservado.
+		}
+
 		// Reserva do número da NF-e (anti-duplicidade, com lock).
 		$numero = DB::transaction(function () use ($venda, $config) {
 			$cfg = ConfigNota::query()->where('id', $config->id)->lockForUpdate()->first();
@@ -535,17 +552,22 @@ class NotaFiscalController extends Controller
 		}
 		$venda->NfNumero = $numero;
 
-		if($ok && in_array((int) $codigo, [100, 104, 110, 150], true)){
-			$venda->estado = 'APROVADO';
-		}else{
-			$venda->estado = $ok ? 'PENDENTE' : 'REJEITADO';
+		// Estado pelo retorno do envio; se não confirmou, confirma pela chave.
+		$venda->estado = $this->estadoNfeIntegraNotas($r, $ok);
+		if($ok && $venda->estado === 'PENDENTE' && $chave){
+			$confirma = $service->consultaChaveNFe($chave);
+			$estadoConfirma = $this->estadoNfeIntegraNotas($confirma, (bool) ($confirma['ok'] ?? false));
+			if($estadoConfirma !== 'PENDENTE'){
+				$venda->estado = $estadoConfirma;
+			}
 		}
 		$venda->save();
 
-		if($ok){
-			$recibo = trim(((string) ($chave ?? '')) . ' ' . (string) ($r['mensagem'] ?? 'Autorizada'));
+		if($venda->estado === 'APROVADO' || $venda->estado === 'PENDENTE'){
+			$sufixo = $venda->estado === 'APROVADO' ? 'Autorizada' : 'em processamento';
+			$recibo = trim(((string) ($chave ?? '')) . ' ' . $sufixo);
 			if($recibo === '' || strtoupper(substr($recibo, 0, 4)) === 'ERRO' || $recibo === 'Apro'){
-				$recibo = 'Autorizada';
+				$recibo = $sufixo;
 			}
 			echo json_encode($recibo);
 			return;
@@ -556,6 +578,40 @@ class NotaFiscalController extends Controller
 			$mensagem .= " (cod {$codigo})";
 		}
 		return response()->json(['message' => $mensagem], 422);
+	}
+
+	/**
+	 * Deriva o estado (APROVADO/CANCELADO/REJEITADO/PENDENTE) a partir de uma
+	 * resposta da IntegraNotas (envio ou consulta por chave). Usa apenas campos
+	 * de cStat/status reais (nao o codigo HTTP) para evitar falso rejeitado.
+	 */
+	private function estadoNfeIntegraNotas($r, bool $ok): string {
+		$raw = is_array($r) ? ($r['raw'] ?? []) : [];
+		$g = function($p) use ($raw){ return \Illuminate\Support\Arr::get($raw, $p); };
+
+		$cstats = array_map('intval', array_filter([
+			$g('dados.codigo_status'), $g('protNFe.infProt.cStat'), $g('cStat'), $g('dados.cStat'),
+		], function($x){ return $x !== null && $x !== ''; }));
+
+		$status = strtolower((string) ($g('status') ?: $g('dados.status') ?: ''));
+		$temProtocolo = (bool) (
+			$g('protocolo') ?? $g('numero_protocolo') ?? $g('dados.protocolo')
+			?? $g('protNFe.infProt.nProt') ?? $g('dados.protocolo_autorizacao') ?? $g('dados.numero_protocolo')
+		);
+
+		foreach($cstats as $c){ if(in_array($c, [100, 150], true)) return 'APROVADO'; }
+		if(strpos($status, 'autoriz') !== false) return 'APROVADO';
+
+		foreach($cstats as $c){ if(in_array($c, [101, 151, 155], true)) return 'CANCELADO'; }
+		if(strpos($status, 'cancel') !== false) return 'CANCELADO';
+
+		foreach($cstats as $c){ if(in_array($c, [110, 301, 302, 303], true) || $c >= 200) return 'REJEITADO'; }
+		if(strpos($status, 'rejeit') !== false || strpos($status, 'deneg') !== false) return 'REJEITADO';
+
+		// Autorizada mas sem cStat explícito no retorno (tem chave + protocolo).
+		if($ok && $temProtocolo) return 'APROVADO';
+
+		return $ok ? 'PENDENTE' : 'REJEITADO';
 	}
 
 	public function imprimir($id){

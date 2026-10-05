@@ -7,6 +7,7 @@ use App\Models\Cliente;
 use App\Models\Cidade;
 use App\Models\ConfigNota;
 use App\Models\CreditoVenda;
+use App\Services\PlanilhaReader;
 
 use Dompdf\Dompdf;
 
@@ -388,5 +389,183 @@ class ClienteController extends Controller
         }
     }
 
+    // ===================================================================
+    // Importacao de clientes (CSV / XLSX) - nativo, sem dependencias
+    // ===================================================================
+
+    /** Tela de importacao. */
+    public function importar(){
+        return view('clientes/importar')
+        ->with('title', 'Importar Clientes');
+    }
+
+    /** Download do modelo CSV com o cabecalho esperado. */
+    public function importarModelo(){
+        $colunas = [
+            'razao_social','nome_fantasia','cpf_cnpj','ie_rg','telefone','celular','email',
+            'cep','rua','numero','bairro','cidade_codigo','cidade','uf',
+            'contribuinte','consumidor_final','limite_venda'
+        ];
+        $exemplo = [
+            'CLIENTE EXEMPLO LTDA','CLIENTE EXEMPLO','12345678000199','1234567','6530000000','65990000000','cliente@exemplo.com',
+            '78000000','RUA EXEMPLO','100','CENTRO','5103403','CUIABA','MT',
+            '1','0','0'
+        ];
+
+        $csv = "\xEF\xBB\xBF"; // BOM UTF-8 para abrir certo no Excel
+        $csv .= implode(';', $colunas) . "\r\n";
+        $csv .= implode(';', $exemplo) . "\r\n";
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="modelo_importacao_clientes.csv"',
+        ]);
+    }
+
+    /** Processa o arquivo enviado e importa os clientes. */
+    public function importarProcessar(Request $request){
+        if(!$request->hasFile('file')){
+            session()->flash('mensagem_erro', 'Selecione um arquivo CSV ou XLSX.');
+            return redirect('/clientes/importar');
+        }
+
+        $file = $request->file('file');
+        $extensao = strtolower((string) $file->getClientOriginalExtension());
+        $permitidas = ['csv','txt','xlsx','xlsm'];
+        if(!in_array($extensao, $permitidas, true)){
+            session()->flash('mensagem_erro', 'Formato invalido. Envie CSV ou XLSX.');
+            return redirect('/clientes/importar');
+        }
+
+        try{
+            $linhas = (new PlanilhaReader())->ler($file->getRealPath(), $extensao);
+        }catch(\Throwable $e){
+            session()->flash('mensagem_erro', 'Erro ao ler o arquivo: ' . $e->getMessage());
+            return redirect('/clientes/importar');
+        }
+
+        if(empty($linhas)){
+            session()->flash('mensagem_erro', 'O arquivo nao possui linhas de dados (apenas cabecalho?).');
+            return redirect('/clientes/importar');
+        }
+
+        $importados = 0;
+        $pulados = 0;
+        $erros = [];
+        $linhaNum = 1; // 1 = cabecalho
+
+        foreach($linhas as $row){
+            $linhaNum++;
+
+            $razao = strtoupper(trim((string) ($row['razao_social'] ?? $row['nome'] ?? '')));
+            $cpfCnpj = preg_replace('/\D+/', '', (string) ($row['cpf_cnpj'] ?? $row['cnpj'] ?? $row['cpf'] ?? ''));
+
+            // Linha sem identificacao minima.
+            if($razao === '' && $cpfCnpj === ''){
+                continue;
+            }
+            if($razao === ''){
+                $erros[] = "Linha {$linhaNum}: razao_social vazia.";
+                continue;
+            }
+
+            // Duplicado por CPF/CNPJ -> pula.
+            if($cpfCnpj !== '' && Cliente::where('cpf_cnpj', $cpfCnpj)->exists()){
+                $pulados++;
+                continue;
+            }
+
+            $cidadeId = $this->resolverCidadeImportacao($row);
+            if($cidadeId === null){
+                $cidadeInfo = trim((string) ($row['cidade_codigo'] ?? $row['cidade'] ?? $row['cidade_id'] ?? '?'));
+                $erros[] = "Linha {$linhaNum} ({$razao}): cidade nao encontrada ('{$cidadeInfo}'). Informe cidade_codigo (IBGE), cidade + uf ou cidade_id valido.";
+                continue;
+            }
+
+            $ie = strtoupper(trim((string) ($row['ie_rg'] ?? $row['ie'] ?? '')));
+            if($ie === ''){
+                $ie = 'ISENTO';
+            }
+
+            try{
+                Cliente::create([
+                    'razao_social' => $razao,
+                    'nome_fantasia' => strtoupper(trim((string) ($row['nome_fantasia'] ?? $razao))),
+                    'cpf_cnpj' => $cpfCnpj,
+                    'ie_rg' => $ie,
+                    'telefone' => trim((string) ($row['telefone'] ?? '')),
+                    'celular' => trim((string) ($row['celular'] ?? '')),
+                    'email' => trim((string) ($row['email'] ?? '')),
+                    'cep' => preg_replace('/\D+/', '', (string) ($row['cep'] ?? '')),
+                    'rua' => strtoupper(trim((string) ($row['rua'] ?? $row['logradouro'] ?? ''))),
+                    'numero' => strtoupper(trim((string) ($row['numero'] ?? ''))),
+                    'bairro' => strtoupper(trim((string) ($row['bairro'] ?? ''))),
+                    'cidade_id' => $cidadeId,
+                    'contribuinte' => $this->boolImportacao($row['contribuinte'] ?? null),
+                    'consumidor_final' => $this->boolImportacao($row['consumidor_final'] ?? null),
+                    'limite_venda' => (float) str_replace(',', '.', (string) ($row['limite_venda'] ?? 0)),
+                    // Campos de cobranca sao NOT NULL na tabela; inicia vazios.
+                    'rua_cobranca' => '',
+                    'numero_cobranca' => '',
+                    'bairro_cobranca' => '',
+                    'cep_cobranca' => '',
+                    'cidade_cobranca_id' => null,
+                ]);
+                $importados++;
+            }catch(\Throwable $e){
+                $erros[] = "Linha {$linhaNum} ({$razao}): " . $e->getMessage();
+            }
+        }
+
+        $resumo = "Importados: {$importados}. Pulados (ja existiam): {$pulados}.";
+        if(!empty($erros)){
+            $resumo .= ' Erros: ' . count($erros) . '.';
+            session()->flash('erros_importacao', array_slice($erros, 0, 50));
+        }
+        session()->flash('mensagem_sucesso', $resumo);
+
+        return redirect('/clientes/importar');
+    }
+
+    /** Resolve a cidade por codigo IBGE, nome + UF ou ID de uma exportacao. */
+    private function resolverCidadeImportacao(array $row){
+        $codigo = preg_replace('/\D+/', '', (string) ($row['cidade_codigo'] ?? $row['codigo_municipio'] ?? $row['ibge'] ?? ''));
+        if($codigo !== ''){
+            $c = Cidade::where('codigo', $codigo)->first();
+            if($c){
+                return $c->id;
+            }
+        }
+
+        $nome = trim((string) ($row['cidade'] ?? $row['municipio'] ?? ''));
+        if($nome !== ''){
+            $uf = strtoupper(trim((string) ($row['uf'] ?? '')));
+            $q = Cidade::where('nome', 'LIKE', $nome);
+            if($uf !== ''){
+                $q->where('uf', $uf);
+            }
+            $c = $q->first();
+            if($c){
+                return $c->id;
+            }
+        }
+
+        $id = trim((string) ($row['cidade_id'] ?? ''));
+        if($id !== '' && ctype_digit($id)){
+            $cidade = Cidade::find($id);
+            if($cidade){
+                return $cidade->id;
+            }
+        }
+
+        return null;
+    }
+
+    /** Converte valores diversos (1/0, S/N, sim/nao, true/false) em 1/0. */
+    private function boolImportacao($valor): int
+    {
+        $v = strtoupper(trim((string) $valor));
+        return in_array($v, ['1','S','SIM','Y','YES','TRUE','VERDADEIRO'], true) ? 1 : 0;
+    }
 
 }
