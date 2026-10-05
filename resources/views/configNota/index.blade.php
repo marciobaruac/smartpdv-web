@@ -632,6 +632,18 @@
 									<div class="kt-section__body">
 										<div class="row">
 											<div class="form-group validated col-lg-12 col-md-12 col-sm-12">
+												<label class="col-form-label text-left col-lg-12 col-sm-12">Provedor de emiss&atilde;o da NF-e</label>
+												@php $provedorSel = old('provedor_nfe', isset($config) ? ($config->provedor_nfe ?? 'integranotas') : 'integranotas'); @endphp
+												<select name="provedor_nfe" class="custom-select form-control">
+													@foreach(\App\Models\ConfigNota::provedoresNfe() as $pval => $plabel)
+													<option value="{{ $pval }}" {{ $provedorSel === $pval ? 'selected' : '' }}>{{ $plabel }}</option>
+													@endforeach
+												</select>
+												<small class="form-text text-muted">Define por onde a NF-e (modelo 55) &eacute; enviada ao clicar em "Enviar". Padr&atilde;o: IntegraNotas.</small>
+											</div>
+										</div>
+										<div class="row">
+											<div class="form-group validated col-lg-12 col-md-12 col-sm-12">
 												<label class="col-form-label text-left col-lg-12 col-sm-12">Token IntegraNotas (NF-e / DFe)</label>
 												<div class="">
 													<input id="token_nfe" type="text" class="form-control @if($errors->has('token_nfe')) is-invalid @endif" name="token_nfe" value="{{ isset($config) ? $config->token_nfe : old('token_nfe') }}" autocomplete="off" placeholder="Informe o token da API IntegraNotas">

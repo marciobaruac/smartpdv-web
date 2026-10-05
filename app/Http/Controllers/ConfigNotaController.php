@@ -131,6 +131,7 @@ class ConfigNotaController extends Controller
 				'csc' => $request->csc,
 				'csc_id' => $request->csc_id,
 				'token_nfe' => trim((string) $request->token_nfe),
+				'provedor_nfe' => in_array($request->provedor_nfe, ['integranotas','sefaz'], true) ? $request->provedor_nfe : 'integranotas',
 				'certificado_a3' => $request->certificado_a3 ? true: false,
 			]);
 		}else{
@@ -171,6 +172,7 @@ class ConfigNotaController extends Controller
 			$config->csc = $request->csc;
 			$config->csc_id = $request->csc_id;
 			$config->token_nfe = trim((string) $request->token_nfe);
+			$config->provedor_nfe = in_array($request->provedor_nfe, ['integranotas','sefaz'], true) ? $request->provedor_nfe : 'integranotas';
 			$config->certificado_a3 = $request->certificado_a3 ? true : false;
 
 			$result = $config->save();

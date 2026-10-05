@@ -14,8 +14,15 @@ class ConfigNota extends Model
         'CST_IPI_padrao', 'frete_padrao', 'tipo_pagamento_padrao', 'nat_op_padrao', 'ambiente', 
         'cUF', 'ultimo_numero_nfe', 'ultimo_numero_nfce', 'ultimo_numero_cte', 'ultimo_numero_mdfe',
         'numero_serie_nfe', 'numero_serie_nfce', 'csc', 'csc_id', 'certificado_a3','consultaprodutoentrada', 'custo_fixo', 'visualizaclientefantasia',
-        'token_nfe'
+        'token_nfe', 'provedor_nfe'
     ];
+
+    public static function provedoresNfe(){
+        return [
+            'integranotas' => 'IntegraNotas',
+            'sefaz'        => 'SEFAZ direto (certificado)',
+        ];
+    }
 
     public function natureza(){
         return $this->belongsTo(NaturezaOperacao::class, 'nat_op_padrao');

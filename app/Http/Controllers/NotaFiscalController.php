@@ -7,6 +7,8 @@ use App\Models\ConfigNota;
 use App\Services\NFService;
 use App\Services\NFCeService;
 use App\Services\NuvemFiscalNfceService;
+use App\Services\IntegraNotasService;
+use App\Services\IntegraNotasNfePayload;
 
 use App\Models\Venda;
 use App\Models\ContaReceber;
@@ -51,6 +53,12 @@ class NotaFiscalController extends Controller
 		->first();
 
 		$config = ConfigNota::first();
+
+		// Provedor de emissao da NF-e (padrao: IntegraNotas). Configuravel em
+		// Configurar Emitente > aba IntegraNotas. 'sefaz' mantem o fluxo antigo.
+		if(($config->provedor_nfe ?? 'integranotas') === 'integranotas'){
+			return $this->gerarNfIntegraNotas($venda, $config);
+		}
 
 		$cnpj = str_replace(".", "", $config->cnpj);
 		$cnpj = str_replace("/", "", $cnpj);
@@ -446,14 +454,130 @@ class NotaFiscalController extends Controller
 		}
 	}
 
+	/**
+	 * Emissao de NF-e (modelo 55) pela IntegraNotas.
+	 * Retorno compativel com o enviar() do public/js/nf.js:
+	 *  - sucesso  -> echo json_encode("<recibo>")  (nao comeca com "Erro", nao e "Apro")
+	 *  - ja aprov -> echo json_encode("Apro")
+	 *  - erro     -> response()->json(['message' => ...], 4xx)
+	 */
+	private function gerarNfIntegraNotas($venda, $config){
+		if($venda == null){
+			return response()->json(['message' => 'Venda não encontrada.'], 404);
+		}
+
+		$trib = Tributacao::first();
+		if(!$trib){
+			$trib = new Tributacao(['icms' => 0, 'pis' => 0, 'cofins' => 0, 'ipi' => 0, 'regime' => 0]);
+		}
+
+		// Só emite em estados compatíveis (igual ao fluxo SEFAZ + rejeitado/pendente).
+		$estado = (string) ($venda->estado ?? '');
+		$permitidos = ['REJEITADO', 'DISPONIVEL', 'PENDENTE', ''];
+		if(!in_array($estado, $permitidos, true)){
+			echo json_encode("Apro");
+			return;
+		}
+
+		$service = new IntegraNotasService();
+		if(!$service->temToken()){
+			return response()->json(['message' => 'Configure o token da IntegraNotas em Configurar Emitente > aba IntegraNotas.'], 422);
+		}
+
+		// Reserva do número da NF-e (anti-duplicidade, com lock).
+		$numero = DB::transaction(function () use ($venda, $config) {
+			$cfg = ConfigNota::query()->where('id', $config->id)->lockForUpdate()->first();
+			$vLock = Venda::query()->lockForUpdate()->find($venda->id);
+			if((int) ($vLock->NfNumero ?? 0) > 0){
+				return (int) $vLock->NfNumero;
+			}
+			$proximo = (int) $cfg->ultimo_numero_nfe + 1;
+			$vLock->NfNumero = $proximo;
+			$vLock->save();
+			return $proximo;
+		});
+		$serie = (int) ($config->numero_serie_nfe ?: 1);
+
+		$venda->load(['cliente.cidade', 'itens.produto', 'frete', 'transportadora.cidade', 'natureza', 'duplicatas']);
+
+		try {
+			$payload = (new IntegraNotasNfePayload())->montar($venda, $config, $trib, $serie, $numero);
+		} catch (\RuntimeException $e) {
+			return response()->json(['message' => $e->getMessage()], 422);
+		} catch (\Throwable $e) {
+			\Log::error('[NF IntegraNotas] Falha ao montar payload', ['venda_id' => $venda->id, 'erro' => $e->getMessage()]);
+			return response()->json(['message' => 'Erro ao montar os dados da NF-e: ' . $e->getMessage()], 422);
+		}
+
+		$r = $service->enviarNFe($payload);
+
+		// Avança o último número monotonicamente.
+		DB::transaction(function () use ($numero, $config) {
+			$cfg = ConfigNota::query()->where('id', $config->id)->lockForUpdate()->first();
+			if((int) $cfg->ultimo_numero_nfe < $numero){
+				$cfg->ultimo_numero_nfe = $numero;
+				$cfg->save();
+			}
+		});
+
+		$raw = $r['raw'] ?? [];
+		$ok = (bool) ($r['ok'] ?? false);
+		$codigo = (string) ($r['codigo'] ?? '');
+
+		$chave = \Illuminate\Support\Arr::get($raw, 'chave')
+			?? \Illuminate\Support\Arr::get($raw, 'dados.chave')
+			?? \Illuminate\Support\Arr::get($raw, 'nfe.chave')
+			?? (preg_match('/\b\d{44}\b/', json_encode($raw), $m) ? $m[0] : null);
+
+		if($chave){
+			$venda->chave = $chave;
+			$venda->path_xml = $chave . '.xml';
+		}
+		$venda->NfNumero = $numero;
+
+		if($ok && in_array((int) $codigo, [100, 104, 110, 150], true)){
+			$venda->estado = 'APROVADO';
+		}else{
+			$venda->estado = $ok ? 'PENDENTE' : 'REJEITADO';
+		}
+		$venda->save();
+
+		if($ok){
+			$recibo = trim(((string) ($chave ?? '')) . ' ' . (string) ($r['mensagem'] ?? 'Autorizada'));
+			if($recibo === '' || strtoupper(substr($recibo, 0, 4)) === 'ERRO' || $recibo === 'Apro'){
+				$recibo = 'Autorizada';
+			}
+			echo json_encode($recibo);
+			return;
+		}
+
+		$mensagem = (string) ($r['mensagem'] ?? 'Falha ao emitir NF-e na IntegraNotas.');
+		if($codigo !== ''){
+			$mensagem .= " (cod {$codigo})";
+		}
+		return response()->json(['message' => $mensagem], 422);
+	}
+
 	public function imprimir($id){
 		$venda = Venda::
 		where('id', $id)
 		->first();
 
+		if($venda == null){
+			echo "Venda não encontrada!!";
+			return;
+		}
+
 		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
-		if(file_exists($public.'xml_nfe/'.$venda->chave.'.xml')){
-			$xml = file_get_contents($public.'xml_nfe/'.$venda->chave.'.xml');
+		$caminhoXml = $public.'xml_nfe/'.$venda->chave.'.xml';
+
+		// Se o XML local não existir, tenta baixar da IntegraNotas pela chave.
+		if(!file_exists($caminhoXml)){
+			$this->baixarXmlIntegraNotas($venda, $caminhoXml, $public);
+		}
+
+		if(file_exists($caminhoXml)){
+			$xml = file_get_contents($caminhoXml);
 			$logo = 'data://text/plain;base64,'. base64_encode(file_get_contents($public.'imgs/logo.jpg'));
 
 			try {
@@ -468,8 +592,91 @@ class NotaFiscalController extends Controller
 				echo "Ocorreu um erro durante o processamento :" . $e->getMessage();
 			}
 		}else{
+			// Último recurso: tenta o PDF/DANFE direto da IntegraNotas.
+			$pdf = $this->danfePdfIntegraNotas($venda);
+			if($pdf !== null){
+				return response($pdf)
+				->header('Content-Type', 'application/pdf');
+			}
 			echo "Arquivo XML não encontrado!!";
 		}
+	}
+
+	/**
+	 * Baixa o XML autorizado da IntegraNotas pela chave da venda e grava
+	 * localmente em xml_nfe/{chave}.xml. Retorna true se conseguiu.
+	 */
+	private function baixarXmlIntegraNotas($venda, $caminhoXml, $public){
+		$chave = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+		if(strlen($chave) !== 44){
+			return false;
+		}
+
+		try {
+			$service = new IntegraNotasService();
+			if(!$service->temToken()){
+				return false;
+			}
+
+			$res = $service->xmlNFe($chave);
+			if(!empty($res['ok']) && !empty($res['xml'])){
+				$dir = $public.'xml_nfe';
+				if(!is_dir($dir)){
+					@mkdir($dir, 0775, true);
+				}
+				file_put_contents($caminhoXml, $res['xml']);
+				return true;
+			}
+
+			\Log::warning('[NF imprimir] IntegraNotas não retornou XML', [
+				'venda_id' => $venda->id ?? null,
+				'chave' => $chave,
+				'mensagem' => $res['mensagem'] ?? null,
+			]);
+		} catch (\Throwable $e) {
+			\Log::warning('[NF imprimir] Falha ao baixar XML da IntegraNotas', [
+				'venda_id' => $venda->id ?? null,
+				'erro' => $e->getMessage(),
+			]);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Obtém o PDF/DANFE direto da IntegraNotas pela chave. Retorna o binário
+	 * do PDF ou null.
+	 */
+	private function danfePdfIntegraNotas($venda){
+		$chave = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+		if(strlen($chave) !== 44){
+			return null;
+		}
+
+		try {
+			$service = new IntegraNotasService();
+			if(!$service->temToken()){
+				return null;
+			}
+
+			$res = $service->pdfNFe($chave);
+			if(!empty($res['ok']) && !empty($res['pdf'])){
+				return $res['pdf'];
+			}
+
+			\Log::warning('[NF imprimir] IntegraNotas não retornou PDF', [
+				'venda_id' => $venda->id ?? null,
+				'chave' => $chave,
+				'mensagem' => $res['mensagem'] ?? null,
+			]);
+		} catch (\Throwable $e) {
+			\Log::warning('[NF imprimir] Falha ao baixar PDF da IntegraNotas', [
+				'venda_id' => $venda->id ?? null,
+				'erro' => $e->getMessage(),
+			]);
+		}
+
+		return null;
 	}
 
 	public function renderizarXmlcomplementar($id){
