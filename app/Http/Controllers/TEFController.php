@@ -481,4 +481,114 @@ class TEFController extends Controller
         return $codigoBandeira;
     }
 
+    // Converte o status da intenção de venda (PayGo) para a "situacao" interna
+    // usada na transacao_tef. 0 = pendente/aguardando (continua consultando).
+    private function mapStatusSituacao($statusId){
+        switch((int) trim((string) $statusId)){
+            case 10: return 1; // aprovada e recebida
+            case 15: return 2; // expirada
+            case 18: return 3; // em processo de cancelamento
+            case 19: return 4; // solicitação de cancelamento recebida
+            case 20: return 5; // cancelamento concluído
+            case 25: return 6; // não aprovada
+            default: return 0; // pendente / aguardando pagamento
+        }
+    }
+
+    private function situacaoLabel($situacao){
+        $labels = [
+            0 => 'PENDENTE',
+            1 => 'APROVADA',
+            2 => 'EXPIRADA',
+            3 => 'EM PROCESSO DE CANCELAMENTO',
+            4 => 'SOLICITAÇÃO DE CANCELAMENTO',
+            5 => 'CANCELADA',
+            6 => 'NÃO APROVADA',
+        ];
+        return $labels[(int) $situacao] ?? 'DESCONHECIDA';
+    }
+
+    // Reconsulta manual: pergunta à PayGo o status atual de uma intenção de venda
+    // (usada nos TEFs que ficaram PENDENTE, típico de Pix pago fora da janela de
+    // consulta do caixa) e atualiza a "situacao" na transacao_tef. Apenas marca a
+    // situação — não cria venda.
+    public function reconsultarTEF(Request $request){
+        $intencaoVendaId = $request->INTENCAO_VENDA_ID;
+
+        if(empty($intencaoVendaId)){
+            echo json_encode(['ok' => false, 'erro' => 'Intenção de venda não informada.']);
+            exit;
+        }
+
+        $parametrosTEF = TEFParametros::get();
+        if(count($parametrosTEF) == 0){
+            echo json_encode(['ok' => false, 'erro' => 'Parâmetros de TEF não configurados.']);
+            exit;
+        }
+
+        $dataTest   = $parametrosTEF[0];
+        $curlUpdate = new CurlTEF($dataTest['url'] . '/IntencaoVenda/GetByFiltros?key='.trim($dataTest['chave_integracao']));
+
+        $arr['intencaoVendaId']     = $intencaoVendaId;
+        $arr['dataFim']             = '';
+        $arr['dataInicio']          = true;
+        $arr['formaPagamentoId']    = true;
+        $arr['quantidadeRegistros'] = 20;
+        $arr['status']              = '';
+
+        Log::info('TEF Reconsulta request', ['intencao_venda_id' => $intencaoVendaId]);
+
+        $execute  = $curlUpdate->executeCurl($arr);
+        Log::info('TEF Reconsulta response', ['response' => $execute]);
+        $response = json_decode($execute);
+
+        if(!isset($response->intencoesVendas) || count($response->intencoesVendas) == 0){
+            echo json_encode([
+                'ok'   => false,
+                'erro' => 'Intenção de venda não encontrada na PayGo. Verifique a conexão com o TEF.'
+            ]);
+            exit;
+        }
+
+        $detIntencaoVenda = $response->intencoesVendas[0];
+        $statusId         = isset($detIntencaoVenda->intencaoVendaStatus->id) ? $detIntencaoVenda->intencaoVendaStatus->id : null;
+        $situacao         = $this->mapStatusSituacao($statusId);
+
+        $update = ['situacao' => $situacao];
+
+        // Se já vierem os dados do pagamento, grava-os junto (Pix pode não ter
+        // codigo_autorizacao; nesse caso a confirmação é dada por situacao + CNPJ).
+        if(isset($detIntencaoVenda->pagamentosExternos) && count($detIntencaoVenda->pagamentosExternos) > 0){
+            $detPagamento    = $detIntencaoVenda->pagamentosExternos[0];
+            $bandeira        = isset($detPagamento->bandeira) ? $detPagamento->bandeira : '';
+            $codigoBandeira  = $this->getBandeiraByBandeiraTEF(substr((string) $bandeira, 0, 4));
+            $cnpj_adquirente = $this->getCNPJByAdquirente(isset($detPagamento->adquirente) ? $detPagamento->adquirente : '');
+
+            $update = array_merge($update, [
+                'adquirente'          => $detPagamento->adquirente ?? null,
+                'cnpj_adquirente'     => $cnpj_adquirente,
+                'codigo_autorizacao'  => $detPagamento->autorizacao ?? null,
+                'codigo_adquirente'   => $detPagamento->codigoRespostaAdquirente ?? null,
+                'nsu'                 => $detPagamento->nsuTid ?? null,
+                'id_pagamento'        => $detPagamento->idPagamento ?? null,
+                'nome'                => $detPagamento->nomeTitularCartao ?? null,
+                'mensagem_adquirente' => $detPagamento->mensagemRespostaAdquirente ?? null,
+                'bandeira'            => $bandeira,
+                'codigo_bandeira'     => $codigoBandeira,
+                'endtoendid'          => $detPagamento->nsuTid ?? null,
+            ]);
+        }
+
+        TransacaoTEF::where('intencao_venda_id', $intencaoVendaId)->update($update);
+
+        echo json_encode([
+            'ok'            => true,
+            'situacao'      => $situacao,
+            'situacaoLabel' => $this->situacaoLabel($situacao),
+            'aprovada'      => $situacao === 1,
+            'status_paygo'  => $statusId,
+        ]);
+        exit;
+    }
+
 }

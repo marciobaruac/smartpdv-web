@@ -21,6 +21,19 @@
 					</div>
 					@csrf
 
+					<ul class="nav nav-tabs nav-tabs-line mb-5 px-4 pt-4" role="tablist">
+						<li class="nav-item">
+							<a class="nav-link active" data-toggle="tab" href="#cfg_emitente" role="tab">Emitente</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link @if($errors->has('token_nfe')) text-danger @endif" data-toggle="tab" href="#cfg_integranotas" role="tab">IntegraNotas</a>
+						</li>
+					</ul>
+
+					<div class="tab-content">
+
+					<div class="tab-pane fade show active" id="cfg_emitente" role="tabpanel">
+
 					<div class="row">
 						<div class="col-xl-2"></div>
 						<div class="col-xl-8">
@@ -608,6 +621,36 @@
 							</div>
 						</div>
 					</div>
+
+					</div><!-- /cfg_emitente -->
+
+					<div class="tab-pane fade" id="cfg_integranotas" role="tabpanel">
+						<div class="row">
+							<div class="col-xl-2"></div>
+							<div class="col-xl-8">
+								<div class="kt-section kt-section--first">
+									<div class="kt-section__body">
+										<div class="row">
+											<div class="form-group validated col-lg-12 col-md-12 col-sm-12">
+												<label class="col-form-label text-left col-lg-12 col-sm-12">Token IntegraNotas (NF-e / DFe)</label>
+												<div class="">
+													<input id="token_nfe" type="text" class="form-control @if($errors->has('token_nfe')) is-invalid @endif" name="token_nfe" value="{{ isset($config) ? $config->token_nfe : old('token_nfe') }}" autocomplete="off" placeholder="Informe o token da API IntegraNotas">
+													@if($errors->has('token_nfe'))
+													<div class="invalid-feedback">
+														{{ $errors->first('token_nfe') }}
+													</div>
+													@endif
+													<small class="form-text text-muted">Usado para emitir NF-e (modelo 55) e consultar DF-e pela IntegraNotas. O ambiente (Homologa&ccedil;&atilde;o/Produ&ccedil;&atilde;o) segue o campo "Ambiente" (aba Emitente).</small>
+												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div><!-- /cfg_integranotas -->
+
+					</div><!-- /tab-content -->
 
 					<div class="card-footer">
 

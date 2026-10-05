@@ -130,6 +130,7 @@ class ConfigNotaController extends Controller
 				'numero_serie_nfce' => $request->numero_serie_nfce,
 				'csc' => $request->csc,
 				'csc_id' => $request->csc_id,
+				'token_nfe' => trim((string) $request->token_nfe),
 				'certificado_a3' => $request->certificado_a3 ? true: false,
 			]);
 		}else{
@@ -169,6 +170,7 @@ class ConfigNotaController extends Controller
 			$config->numero_serie_nfce = $request->numero_serie_nfce;
 			$config->csc = $request->csc;
 			$config->csc_id = $request->csc_id;
+			$config->token_nfe = trim((string) $request->token_nfe);
 			$config->certificado_a3 = $request->certificado_a3 ? true : false;
 
 			$result = $config->save();
@@ -214,6 +216,7 @@ class ConfigNotaController extends Controller
 			'numero_serie_nfce' => 'required|max:3',
 			'csc' => 'required',
 			'csc_id' => 'required',
+			'token_nfe' => 'nullable|max:255',
 		];
 
 		$messages = [

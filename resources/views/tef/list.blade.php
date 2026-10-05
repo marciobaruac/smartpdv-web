@@ -154,6 +154,12 @@
                                                                 <td class="datatable-cell">
                                                                     <span class="codigo" style="width: 220px;">
 
+                                                                        @if($tef->situacao == 0)
+                                                                        <a id="btn_reconsulta_{{$tef->intencao_venda_id}}" title="RECONSULTAR SITUAÇÃO NA PAYGO" onclick="reconsultarTEF('{{$tef->intencao_venda_id}}')" href="#!" class="btn btn-info spinner-white spinner-right">
+                                                                            <i class="fa fa-sync"></i>
+                                                                        </a>
+                                                                        @endif
+
                                                                         <a id="btn_consulta_imprimir_{{$tef->intencao_venda_id}}" title="IMPRIMIR SEGUNDA VIA" onclick="imprimirTEF('{{$tef->intencao_venda_id}}')" href="#!" class="btn btn-warning spinner-white spinner-right">
                                                                             <i class="fa fa-print"></i>
                                                                         </a>
@@ -198,6 +204,47 @@
     </div>
 
     <script>
+        function reconsultarTEF(id) {
+            $('#btn_reconsulta_' + id).addClass('spinner');
+
+            let token = $('#_token').val();
+
+            $.ajax({
+                url: path + 'tef/reconsultarTEF',
+                type: 'POST',
+                data: {
+                    INTENCAO_VENDA_ID: id,
+                    _token: token
+                },
+                success: function (json) {
+                    $('#btn_reconsulta_' + id).removeClass('spinner');
+
+                    var data = null;
+                    try { data = (typeof json === 'string') ? $.parseJSON(json) : json; } catch (e) { data = null; }
+
+                    if (!data || !data.ok) {
+                        swal('Erro', (data && data.erro) ? data.erro : 'Não foi possível reconsultar na PayGo.', 'error');
+                        return;
+                    }
+
+                    if (data.aprovada) {
+                        swal({
+                            title: 'PIX confirmado',
+                            text: 'Situação atualizada para APROVADA.',
+                            icon: 'success'
+                        }).then(function () { location.reload(); });
+                    } else {
+                        swal('Situação atual', 'Retorno da PayGo: ' + data.situacaoLabel, 'info')
+                            .then(function () { location.reload(); });
+                    }
+                },
+                error: function () {
+                    $('#btn_reconsulta_' + id).removeClass('spinner');
+                    swal('Erro', 'Falha ao comunicar com o servidor.', 'error');
+                }
+            });
+        }
+
         function imprimirTEF(id) {
             $('#btn_consulta_imprimir_' + id).addClass('spinner')
 

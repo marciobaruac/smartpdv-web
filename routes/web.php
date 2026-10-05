@@ -1624,6 +1624,7 @@ Route::group(['prefix' => 'tef'],function(){
 	Route::post('/postTransacaoTEF', 'TEFController@postTransacaoTEF');
 	Route::post('/getIntencaoVendaTEF', 'TEFController@getIntencaoVendaTEF');
 	Route::post('/getIntencaoVendaTEFCancelamento', 'TEFController@getIntencaoVendaTEFCancelamento');
+	Route::post('/reconsultarTEF', 'TEFController@reconsultarTEF');
 	Route::post('/postCancelarVenda', 'TEFController@postCancelarVenda');
 	Route::post('/postImpressaoSegundaVia', 'TEFController@postImpressaoSegundaVia');
 	Route::get('/filtro', 'TEFController@filtro');
