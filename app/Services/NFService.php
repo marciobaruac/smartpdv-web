@@ -681,8 +681,14 @@ class NFService{
 				  $cnpj = str_replace("-", "", $cnpj);
 				  $stdDetPag->CNPJ = $cnpj;
 			}
-			$stdDetPag->tBand = $venda->bandeira_cartao;
-			
+			// tBand (bandeira) deve ser 2 digitos [0-9]{2}. Quando nao informada
+			// vem algo como "--" e quebra a validacao do XML; cai em 99 (Outros).
+			$bandeira = preg_replace('/\D/', '', (string) $venda->bandeira_cartao);
+			if(strlen($bandeira) == 1){
+				$bandeira = str_pad($bandeira, 2, '0', STR_PAD_LEFT);
+			}
+			$stdDetPag->tBand = (strlen($bandeira) == 2) ? $bandeira : '99';
+
 			$stdDetPag->tpIntegra = 2;
 		}
 		$stdDetPag->indPag = $venda->forma_pagamento == 'a_vista' ?  0 : 1; 
