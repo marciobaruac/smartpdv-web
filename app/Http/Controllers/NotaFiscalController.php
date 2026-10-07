@@ -1117,25 +1117,44 @@ class NotaFiscalController extends Controller
 		if($venda->estado == 'CANCELADO'){
 			try {
 				$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
-				if(file_exists($public.'xml_nfe_cancelada/'.$venda->chave.'.xml')){
-					$xml = file_get_contents($public.'xml_nfe_cancelada/'.$venda->chave.'.xml');
+				$caminho = $public.'xml_nfe_cancelada/'.$venda->chave.'.xml';
+				if(file_exists($caminho)){
+					$xml = file_get_contents($caminho);
+
+					// Se o arquivo salvo for um envelope SOAP / so retEvento (como a
+					// IntegraNotas devolve), reconstroi um procEventoNFe valido para
+					// o sped-da nao quebrar com "getElementsByTagName() on null".
+					$semPrefixo = preg_replace('/<(\/?)[A-Za-z0-9_]+:/', '<$1', (string) $xml);
+					if(strpos($semPrefixo, '<evento') === false || strpos($semPrefixo, 'procEventoNFe') === false){
+						$cnpjEmit = preg_replace('/\D+/', '', (string) (ConfigNota::first()->cnpj ?? ''));
+						$reconstruido = $this->montarProcEventoCancelamento($xml, preg_replace('/\D+/', '', (string) $venda->chave), $cnpjEmit, '');
+						if($reconstruido !== null){
+							$xml = $reconstruido;
+							@file_put_contents($caminho, $xml); // regrava corrigido
+						}
+					}
 
 					$logo = $public.'imgs/logo.jpg';
+					if(!is_file($logo)){
+						$logo = '';
+					}
 
 					$dadosEmitente = $this->getEmitente();
 
 					$daevento = new Daevento($xml, $dadosEmitente);
-					$daevento->debugMode(true);
+					$daevento->debugMode(false);
 					$pdf = $daevento->render($logo);
-				// header('Content-Type: application/pdf');
-				// echo $pdf;
 					return response($pdf)
 					->header('Content-Type', 'application/pdf');
 				}else{
-					echo "Arquivo XML não encontrado!!";
+					echo "Arquivo XML de cancelamento não encontrado. Refaça o cancelamento para gerar o comprovante.";
 				}
-			} catch (InvalidArgumentException $e) {
-				echo "Ocorreu um erro durante o processamento :" . $e->getMessage();
+			} catch (\Throwable $e) {
+				\Log::warning('[NF imprimirCancela] Falha ao gerar comprovante', [
+					'venda_id' => $venda->id ?? null,
+					'erro' => $e->getMessage(),
+				]);
+				echo "Não foi possível gerar o comprovante de cancelamento: " . htmlspecialchars($e->getMessage());
 			}
 		}else{
 			echo "<center><h1>Este documento não possui evento de cancelamento!<h1></center>";
@@ -1256,8 +1275,9 @@ class NotaFiscalController extends Controller
 		$venda->save();
 
 		// Salva o XML do evento de cancelamento para a impressao (imprimirCancela).
+		$cnpjEmit = preg_replace('/\D+/', '', (string) (ConfigNota::first()->cnpj ?? ''));
 		try {
-			$this->salvarXmlCancelamentoIntegraNotas($chave, $raw);
+			$this->salvarXmlCancelamentoIntegraNotas($chave, $raw, $justificativa, $cnpjEmit);
 		} catch (\Throwable $e) {
 			\Log::warning('[NF cancelar] Nao foi possivel salvar XML de cancelamento', [
 				'venda_id' => $venda->id ?? null,
@@ -1294,7 +1314,9 @@ class NotaFiscalController extends Controller
 			}
 		}
 		foreach($cstats as $c){
-			if(in_array($c, [101, 135, 151, 155], true)){
+			// 101/135/151/155 = cancelamento homologado/registrado.
+			// 573 = Duplicidade de Evento (o cancelamento ja existe => nota ja cancelada).
+			if(in_array($c, [101, 135, 151, 155, 573], true)){
 				return true;
 			}
 		}
@@ -1302,32 +1324,31 @@ class NotaFiscalController extends Controller
 		if(strpos($blob, 'cancel') !== false && (strpos($blob, 'homolog') !== false || strpos($blob, 'registrado') !== false)){
 			return true;
 		}
+		if(strpos($blob, 'duplicidade') !== false){
+			return true;
+		}
 		return false;
 	}
 
 	/**
-	 * Extrai e grava o XML do evento de cancelamento em
-	 * xml_nfe_cancelada/{chave}.xml para a impressao do evento.
+	 * Monta e grava um procEventoNFe VALIDO (evento + retEvento) em
+	 * xml_nfe_cancelada/{chave}.xml para a impressao com sped-da (Daevento).
+	 * A IntegraNotas devolve a resposta num envelope SOAP (so retEvento), que
+	 * o Daevento nao consegue ler; por isso reconstruimos o procEventoNFe.
 	 */
-	private function salvarXmlCancelamentoIntegraNotas($chave, $raw){
+	private function salvarXmlCancelamentoIntegraNotas($chave, $raw, $justificativa = '', $cnpj = ''){
 		$chave = preg_replace('/\D+/', '', (string) $chave);
-		if(strlen($chave) !== 44 || !is_array($raw)){
+		if(strlen($chave) !== 44){
 			return false;
 		}
-		$g = function($p) use ($raw){ return \Illuminate\Support\Arr::get($raw, $p); };
-		$xml = $g('xml') ?? $g('dados.xml') ?? $g('xml_cancelamento') ?? $g('dados.xml_cancelamento')
-			?? $g('procEventoNFe') ?? $g('dados.procEventoNFe') ?? $g('eventoXml') ?? $g('retEvento.xml');
 
-		if(!is_string($xml) || $xml === ''){
+		$conteudo = $this->extrairStringXmlEvento($raw);
+		if($conteudo === null){
 			return false;
 		}
-		if(strpos($xml, '<') === false && preg_match('/^[A-Za-z0-9+\/=\s]+$/', $xml)){
-			$decoded = base64_decode($xml, true);
-			if($decoded !== false && $decoded !== ''){
-				$xml = $decoded;
-			}
-		}
-		if(strpos($xml, 'procEventoNFe') === false && strpos($xml, '<evento') === false && strpos($xml, 'retEvento') === false){
+
+		$proc = $this->montarProcEventoCancelamento($conteudo, $chave, (string) $cnpj, (string) $justificativa);
+		if($proc === null){
 			return false;
 		}
 
@@ -1336,8 +1357,105 @@ class NotaFiscalController extends Controller
 		if(!is_dir($dir)){
 			@mkdir($dir, 0775, true);
 		}
-		file_put_contents($dir.'/'.$chave.'.xml', $xml);
+		file_put_contents($dir.'/'.$chave.'.xml', $proc);
 		return true;
+	}
+
+	/**
+	 * Localiza, dentro da resposta (array) da IntegraNotas, a string XML/SOAP que
+	 * contem o retEvento do cancelamento. Decodifica base64 se necessario.
+	 */
+	private function extrairStringXmlEvento($raw){
+		if(!is_array($raw)){
+			return is_string($raw) ? $raw : null;
+		}
+		$g = function($p) use ($raw){ return \Illuminate\Support\Arr::get($raw, $p); };
+		$xml = $g('xml') ?? $g('dados.xml') ?? $g('xml_cancelamento') ?? $g('dados.xml_cancelamento')
+			?? $g('procEventoNFe') ?? $g('dados.procEventoNFe') ?? $g('eventoXml') ?? $g('retEvento.xml');
+
+		if(!is_string($xml) || $xml === ''){
+			// Ultimo recurso: procura retEvento no JSON serializado inteiro.
+			$blob = json_encode($raw);
+			if(is_string($blob) && strpos($blob, 'retEvento') !== false && preg_match('/<[^"]*retEvento[\s\S]*?<\/[^"]*retEvento>/', stripslashes($blob), $m)){
+				return $m[0];
+			}
+			return null;
+		}
+
+		if(strpos($xml, '<') === false && preg_match('/^[A-Za-z0-9+\/=\s]+$/', $xml)){
+			$decoded = base64_decode($xml, true);
+			if($decoded !== false && $decoded !== ''){
+				$xml = $decoded;
+			}
+		}
+
+		return (strpos($xml, 'retEvento') !== false || strpos($xml, 'procEventoNFe') !== false) ? $xml : null;
+	}
+
+	/**
+	 * Reconstroi um procEventoNFe (versao 1.00) de cancelamento a partir de uma
+	 * string XML/SOAP que contenha o <retEvento>. Gera um <evento> sintetico com
+	 * a justificativa para o sped-da renderizar o comprovante. Retorna o XML ou null.
+	 */
+	private function montarProcEventoCancelamento($conteudo, $chave, $cnpj, $justificativa){
+		if(!is_string($conteudo) || $conteudo === ''){
+			return null;
+		}
+
+		// Se ja for um procEventoNFe completo (tem <evento> e <retEvento>), usa direto.
+		$semPrefixo = preg_replace('/<(\/?)[A-Za-z0-9_]+:/', '<$1', $conteudo);
+		if(strpos($semPrefixo, '<evento') !== false && strpos($semPrefixo, '<retEvento') !== false && strpos($semPrefixo, 'procEventoNFe') !== false){
+			return $conteudo;
+		}
+
+		if(!preg_match('/<retEvento\b[\s\S]*?<\/retEvento>/', $semPrefixo, $m)){
+			return null;
+		}
+		$retEvento = $m[0];
+
+		$get = function($tag) use ($retEvento){
+			if(preg_match('/<'.$tag.'>([\s\S]*?)<\/'.$tag.'>/', $retEvento, $mm)){
+				return trim($mm[1]);
+			}
+			return '';
+		};
+
+		$tpAmb   = $get('tpAmb') ?: '1';
+		$cOrgao  = $get('cOrgao') ?: substr($chave, 0, 2);
+		$tpEvento= $get('tpEvento') ?: '110111';
+		$nSeq    = $get('nSeqEvento') ?: '1';
+		$dh      = $get('dhRegEvento') ?: date('Y-m-d\TH:i:sP');
+		$nProt   = $get('nProt');
+		$chNFe   = $get('chNFe') ?: $chave;
+		$cnpjEv  = $get('CNPJ') ?: preg_replace('/\D+/', '', (string) $cnpj);
+
+		$idSeq = str_pad((string) $nSeq, 2, '0', STR_PAD_LEFT);
+		$id = 'ID'.$tpEvento.$chNFe.$idSeq;
+		$xJust = htmlspecialchars((string) $justificativa, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+
+		$proc = '<?xml version="1.0" encoding="UTF-8"?>'
+			.'<procEventoNFe versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">'
+			.'<evento versao="1.00">'
+			.'<infEvento Id="'.$id.'">'
+			.'<cOrgao>'.$cOrgao.'</cOrgao>'
+			.'<tpAmb>'.$tpAmb.'</tpAmb>'
+			.'<CNPJ>'.$cnpjEv.'</CNPJ>'
+			.'<chNFe>'.$chNFe.'</chNFe>'
+			.'<dhEvento>'.$dh.'</dhEvento>'
+			.'<tpEvento>'.$tpEvento.'</tpEvento>'
+			.'<nSeqEvento>'.$nSeq.'</nSeqEvento>'
+			.'<verEvento>1.00</verEvento>'
+			.'<detEvento versao="1.00">'
+			.'<descEvento>Cancelamento</descEvento>'
+			.'<nProt>'.$nProt.'</nProt>'
+			.'<xJust>'.$xJust.'</xJust>'
+			.'</detEvento>'
+			.'</infEvento>'
+			.'</evento>'
+			.$retEvento
+			.'</procEventoNFe>';
+
+		return $proc;
 	}
 
 	public function cancelarxml($id){
