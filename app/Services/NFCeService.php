@@ -934,7 +934,12 @@ Log::info('NFC-e | Cálculo de pagamento', [
             $stdProd->NCM = $ncm;
             $ibpt = IBPT::getIBPT($config->UF, $ncm);
 
-            $stdProd->CFOP = $i->produto->CFOP_saida_estadual;
+            $cfop = preg_replace('/\D/', '', (string) $i->produto->CFOP_saida_estadual);
+            // Venda (tabela vendas): CFOP 5102 deve sair como 5101
+            if ($cfop === '5102') {
+                $cfop = '5101';
+            }
+            $stdProd->CFOP = $cfop;
             $cest = $i->produto->CEST;
             $cest = str_replace(".", "", $cest);
             $stdProd->CEST = $cest;
