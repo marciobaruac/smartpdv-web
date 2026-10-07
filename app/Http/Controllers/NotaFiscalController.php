@@ -1162,6 +1162,12 @@ class NotaFiscalController extends Controller
 
 		$config = ConfigNota::first();
 
+		// Cancelamento pela IntegraNotas quando este e o provedor de NF-e ativo.
+		$provedor = $config ? strtolower(trim((string) ($config->provedor_nfe ?? ''))) : '';
+		if($provedor === 'integranotas'){
+			return $this->cancelarIntegraNotas($request);
+		}
+
 		$cnpj = str_replace(".", "", $config->cnpj);
 		$cnpj = str_replace("/", "", $cnpj);
 		$cnpj = str_replace("-", "", $cnpj);
@@ -1200,6 +1206,138 @@ class NotaFiscalController extends Controller
 			return response()->json($nfe['data'], $nfe['status']);
 		}
 
+	}
+
+	/**
+	 * Cancelamento de NF-e pela IntegraNotas. Resposta compativel com o
+	 * public/js/nf.js cancelar(): sucesso -> JSON (double-encoded) com
+	 * retEvento.infEvento.xMotivo; erro -> response json {message} 4xx.
+	 */
+	private function cancelarIntegraNotas(Request $request){
+		$venda = Venda::find($request->id);
+		if($venda == null){
+			return response()->json(['message' => 'Venda nao encontrada.'], 404);
+		}
+
+		$chave = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+		if(strlen($chave) !== 44){
+			return response()->json(['message' => 'Esta venda nao possui chave de NF-e valida para cancelar.'], 422);
+		}
+
+		$justificativa = trim((string) $request->justificativa);
+		if(mb_strlen($justificativa) < 15){
+			return response()->json(['message' => 'A justificativa deve ter no minimo 15 caracteres.'], 422);
+		}
+
+		$service = new IntegraNotasService();
+		if(!$service->temToken()){
+			return response()->json(['message' => 'Configure o token da IntegraNotas em Configurar Emitente > aba IntegraNotas.'], 422);
+		}
+
+		$r = $service->cancelarNFe($chave, $justificativa);
+		$ok = (bool) ($r['ok'] ?? false);
+		$raw = $r['raw'] ?? [];
+
+		$estadoPos = $this->estadoNfeIntegraNotas($r, $ok);
+		$cancelou = $this->cancelamentoHomologado($raw)
+			|| $estadoPos === 'CANCELADO'
+			|| ($ok && $estadoPos !== 'REJEITADO');
+
+		if(!$cancelou){
+			$msg = (string) ($r['mensagem'] ?? 'Falha ao cancelar a NF-e na IntegraNotas.');
+			$cod = (string) ($r['codigo'] ?? '');
+			if($cod !== '' && stripos($msg, $cod) === false){
+				$msg .= " (cod {$cod})";
+			}
+			return response()->json(['message' => $msg], 422);
+		}
+
+		$venda->estado = 'CANCELADO';
+		$venda->save();
+
+		// Salva o XML do evento de cancelamento para a impressao (imprimirCancela).
+		try {
+			$this->salvarXmlCancelamentoIntegraNotas($chave, $raw);
+		} catch (\Throwable $e) {
+			\Log::warning('[NF cancelar] Nao foi possivel salvar XML de cancelamento', [
+				'venda_id' => $venda->id ?? null,
+				'erro' => $e->getMessage(),
+			]);
+		}
+
+		$this->removerDuplicadas($venda);
+
+		$xMotivo = (string) (\Illuminate\Support\Arr::get($raw, 'retEvento.infEvento.xMotivo')
+			?: \Illuminate\Support\Arr::get($raw, 'protNFe.infProt.xMotivo')
+			?: ($r['mensagem'] ?? '')
+			?: 'Cancelamento de NF-e homologado');
+
+		$payload = ['retEvento' => ['infEvento' => ['xMotivo' => $xMotivo]]];
+
+		// Double-encode: o JS faz JSON.parse() sobre a resposta ja parseada como json.
+		return response()->json(json_encode($payload));
+	}
+
+	/**
+	 * Verifica, pelos cStat do retorno, se o cancelamento foi homologado/
+	 * registrado (101, 135, 151, 155).
+	 */
+	private function cancelamentoHomologado($raw): bool {
+		if(!is_array($raw)){
+			return false;
+		}
+		$cstats = [];
+		foreach(['cStat', 'retEvento.infEvento.cStat', 'dados.cStat', 'dados.codigo_status', 'protNFe.infProt.cStat'] as $p){
+			$v = \Illuminate\Support\Arr::get($raw, $p);
+			if($v !== null && $v !== ''){
+				$cstats[] = (int) $v;
+			}
+		}
+		foreach($cstats as $c){
+			if(in_array($c, [101, 135, 151, 155], true)){
+				return true;
+			}
+		}
+		$blob = strtolower(json_encode($raw));
+		if(strpos($blob, 'cancel') !== false && (strpos($blob, 'homolog') !== false || strpos($blob, 'registrado') !== false)){
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Extrai e grava o XML do evento de cancelamento em
+	 * xml_nfe_cancelada/{chave}.xml para a impressao do evento.
+	 */
+	private function salvarXmlCancelamentoIntegraNotas($chave, $raw){
+		$chave = preg_replace('/\D+/', '', (string) $chave);
+		if(strlen($chave) !== 44 || !is_array($raw)){
+			return false;
+		}
+		$g = function($p) use ($raw){ return \Illuminate\Support\Arr::get($raw, $p); };
+		$xml = $g('xml') ?? $g('dados.xml') ?? $g('xml_cancelamento') ?? $g('dados.xml_cancelamento')
+			?? $g('procEventoNFe') ?? $g('dados.procEventoNFe') ?? $g('eventoXml') ?? $g('retEvento.xml');
+
+		if(!is_string($xml) || $xml === ''){
+			return false;
+		}
+		if(strpos($xml, '<') === false && preg_match('/^[A-Za-z0-9+\/=\s]+$/', $xml)){
+			$decoded = base64_decode($xml, true);
+			if($decoded !== false && $decoded !== ''){
+				$xml = $decoded;
+			}
+		}
+		if(strpos($xml, 'procEventoNFe') === false && strpos($xml, '<evento') === false && strpos($xml, 'retEvento') === false){
+			return false;
+		}
+
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+		$dir = $public.'xml_nfe_cancelada';
+		if(!is_dir($dir)){
+			@mkdir($dir, 0775, true);
+		}
+		file_put_contents($dir.'/'.$chave.'.xml', $xml);
+		return true;
 	}
 
 	public function cancelarxml($id){

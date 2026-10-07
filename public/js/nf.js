@@ -531,7 +531,11 @@ function cancelar() {
 
                 }, error: function (e) {
                     console.log(e)
-                    swal("Erro", "Contato Com Desenvolvedor", "error")
+                    let msg = "Contato Com Desenvolvedor";
+                    if (e.responseJSON && e.responseJSON.message) {
+                        msg = e.responseJSON.message;
+                    }
+                    swal("Erro", msg, "error")
 
                     // $('#preloader5').css('display', 'none');
                     $('#btn-cancelar-2').removeClass('spinner')
