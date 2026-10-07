@@ -581,6 +581,7 @@ Route::group(['prefix' => 'nf'],function(){
 	Route::get('/consultar_cliente/{id}', 'NotaFiscalController@consultar_cliente');
 	Route::post('/cancelar', 'NotaFiscalController@cancelar');
 	Route::post('/consultar', 'NotaFiscalController@consultar');
+	Route::post('/verificarCancelamento', 'NotaFiscalController@verificarCancelamento');
 	Route::post('/cartaCorrecao', 'NotaFiscalController@cartaCorrecao');
 	Route::get('/teste', 'NotaFiscalController@teste');
 	Route::get('/consultaCadastro', 'NotaFiscalController@consultaCadastro');

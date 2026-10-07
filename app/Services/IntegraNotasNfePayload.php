@@ -199,6 +199,12 @@ class IntegraNotasNfePayload
                 : (string) ($produto->CFOP_saida_estadual ?: ($v->natureza->CFOP_saida_estadual ?? ''));
         }
 
+        // Venda (tabela vendas): CFOP 5102 deve sair como 5101
+        $cfopDigitos = preg_replace('/\D/', '', $cfop);
+        if ($cfopDigitos === '5102') {
+            $cfop = '5101';
+        }
+
         $icms = $this->montarIcms($produto, $cfg, $trib, $vBrut);
 
         // PIS

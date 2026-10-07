@@ -321,6 +321,63 @@ function consultar() {
     }
 }
 
+function verificarCancelamento() {
+    let id = 0;
+    let cont = 0;
+    $('#body tr').each(function () {
+        if ($(this).find('#checkbox input').is(':checked')) {
+            id = $(this).find('#id').html();
+            cont++;
+        }
+    })
+
+    if (cont == 0) {
+        swal("Atenção", "Selecione um documento para verificar", "warning")
+        return;
+    }
+    if (cont > 1) {
+        swal("Atenção", "Selecione apenas um documento para verificar", "warning")
+        return;
+    }
+
+    $('#btn-verificar-cancelamento').addClass('spinner')
+    $('#btn-verificar-cancelamento').addClass('disabled')
+    let token = $('#_token').val();
+    $.ajax
+        ({
+            type: 'POST',
+            data: {
+                id: id,
+                _token: token
+            },
+            url: path + 'nf/verificarCancelamento',
+            dataType: 'json',
+            success: function (e) {
+                console.log(e)
+                $('#btn-verificar-cancelamento').removeClass('spinner')
+                $('#btn-verificar-cancelamento').removeClass('disabled')
+
+                if (e.cancelado_real) {
+                    swal("Cancelada", "A NF-e está REALMENTE cancelada na SEFAZ. " + (e.motivo || ""), "info")
+                } else if (e.alterado) {
+                    swal("Corrigido", "A NF-e NÃO está cancelada na SEFAZ. Status voltou para " + e.estado_atual + ". Atualize a página.", "success")
+                    setTimeout(function () { location.reload(); }, 1800)
+                } else {
+                    swal("Status: " + e.estado_atual, "A nota não está cancelada na SEFAZ. " + (e.motivo || ""), "info")
+                }
+            }, error: function (e) {
+                console.log(e)
+                $('#btn-verificar-cancelamento').removeClass('spinner')
+                $('#btn-verificar-cancelamento').removeClass('disabled')
+                let msg = "Erro de comunicação contate o desenvolvedor";
+                if (e.responseJSON && e.responseJSON.message) {
+                    msg = e.responseJSON.message;
+                }
+                swal("Erro", msg, "error")
+            }
+        });
+}
+
 function setarNumero(buscarCliente = false) {
 
     let id = 0;

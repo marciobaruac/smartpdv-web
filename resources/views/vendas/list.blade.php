@@ -356,6 +356,9 @@
                                             <div class="col-sm-4 col-lg-4 col-md-4 col-xl-2 col-6">
 													<a id="btn-inutilizarnfce" style="width: 100%" class="btn btn-secondary" data-toggle="modal" data-target="#modalnfce">Inutilizar NFCE</a>
 												</div>
+                                            <div class="col-sm-4 col-lg-4 col-md-4 col-xl-2 col-6">
+													<a id="btn-verificar-cancelamento" onclick="verificarCancelamento()" style="width: 100%" class="btn btn-dark spinner-white spinner-right" href="#!">Verificar Cancelamento</a>
+												</div>
                                             </div>
 
 										</div>

@@ -1222,6 +1222,122 @@ class NotaFiscalController extends Controller
 		echo json_encode($c);
 	}
 
+	/**
+	 * Rotina: confere na SEFAZ se a NF-e esta REALMENTE cancelada.
+	 * Se a venda estiver marcada como CANCELADO mas na SEFAZ continua
+	 * autorizada, volta o estado para o status real (normalmente APROVADO),
+	 * para a nota nao ficar presa como cancelada indevidamente.
+	 */
+	public function verificarCancelamento(Request $request){
+		$venda = Venda::find($request->id);
+		if($venda == null){
+			return response()->json(['message' => 'Venda nao encontrada.'], 404);
+		}
+
+		$chave = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+		if(strlen($chave) !== 44){
+			return response()->json(['message' => 'Esta venda nao possui chave de NF-e valida para consultar na SEFAZ.'], 422);
+		}
+
+		$config = ConfigNota::first();
+		if($config == null){
+			return response()->json(['message' => 'Configure o emitente antes de consultar.'], 422);
+		}
+		$provedor = strtolower(trim((string) ($config->provedor_nfe ?? '')));
+
+		$estadoAnterior = (string) $venda->estado;
+		$estadoReal = null;
+		$motivo = '';
+
+		try {
+			if($provedor === 'integranotas'){
+				$service = new IntegraNotasService();
+				if(!$service->temToken()){
+					return response()->json(['message' => 'Configure o token da IntegraNotas em Configurar Emitente > aba IntegraNotas.'], 422);
+				}
+				$consulta = $service->consultaChaveNFe($chave);
+				$estadoReal = $this->estadoNfeIntegraNotas($consulta, (bool) ($consulta['ok'] ?? false));
+				$motivo = (string) (\Illuminate\Support\Arr::get($consulta, 'raw.protNFe.infProt.xMotivo')
+					?: \Illuminate\Support\Arr::get($consulta, 'raw.status')
+					?: \Illuminate\Support\Arr::get($consulta, 'mensagem')
+					?: '');
+			} else {
+				$cnpj = preg_replace('/\D+/', '', (string) $config->cnpj);
+				$nfe_service = new NFService([
+					"atualizacao" => date('Y-m-d h:i:s'),
+					"tpAmb" => (int)$config->ambiente,
+					"razaosocial" => $config->razao_social,
+					"siglaUF" => $config->UF,
+					"cnpj" => $cnpj,
+					"schemes" => "PL_009_V4",
+					"versao" => "4.00",
+					"tokenIBPT" => "AAAAAAA",
+					"CSC" => $config->csc,
+					"CSCid" => $config->csc_id
+				]);
+				$json = $nfe_service->consultar($venda->id);
+				$arr = is_string($json) ? (json_decode($json, true) ?: []) : (array) $json;
+				$estadoReal = $this->estadoRealSefaz($arr);
+				$motivo = (string) (\Illuminate\Support\Arr::get($arr, 'protNFe.infProt.xMotivo')
+					?: \Illuminate\Support\Arr::get($arr, 'xMotivo')
+					?: '');
+			}
+		} catch (\Throwable $e){
+			return response()->json(['message' => 'Erro ao consultar a SEFAZ: ' . $e->getMessage()], 500);
+		}
+
+		if($estadoReal === null || $estadoReal === ''){
+			return response()->json(['message' => 'Nao foi possivel determinar o status na SEFAZ. Tente novamente em instantes.'], 502);
+		}
+
+		$alterado = false;
+		// Marcada como CANCELADO, mas na SEFAZ nao esta cancelada -> volta disponivel.
+		if($estadoAnterior === 'CANCELADO' && $estadoReal !== 'CANCELADO'){
+			$venda->estado = $estadoReal;
+			$venda->save();
+			$alterado = true;
+		} elseif($estadoReal === 'CANCELADO' && $estadoAnterior !== 'CANCELADO'){
+			// Confirma cancelamento real que nao estava refletido no sistema.
+			$venda->estado = 'CANCELADO';
+			$venda->save();
+			$alterado = true;
+		}
+
+		return response()->json([
+			'ok' => true,
+			'alterado' => $alterado,
+			'cancelado_real' => $estadoReal === 'CANCELADO',
+			'estado_anterior' => $estadoAnterior,
+			'estado_atual' => (string) $venda->estado,
+			'motivo' => $motivo,
+		], 200);
+	}
+
+	/**
+	 * Deriva o estado real a partir da resposta da consulta por chave na SEFAZ
+	 * (NFePHP sefazConsultaChave, ja padronizado em array).
+	 */
+	private function estadoRealSefaz(array $arr): ?string {
+		$blob = strtolower(json_encode($arr));
+
+		// Evento de cancelamento homologado (tpEvento 110111 + cStat 135/155/101).
+		if(strpos($blob, '110111') !== false && preg_match('/"cstat"\s*:\s*"?(135|155|101)"?/', $blob)){
+			return 'CANCELADO';
+		}
+
+		$cstats = array_map('intval', array_filter([
+			\Illuminate\Support\Arr::get($arr, 'cStat'),
+			\Illuminate\Support\Arr::get($arr, 'protNFe.infProt.cStat'),
+		], function($x){ return $x !== null && $x !== ''; }));
+
+		foreach($cstats as $c){ if(in_array($c, [101, 151, 155], true)) return 'CANCELADO'; }
+		foreach($cstats as $c){ if(in_array($c, [100, 150], true)) return 'APROVADO'; }
+		foreach($cstats as $c){ if($c === 217) return 'DISPONIVEL'; } // nao consta na base -> pode reemitir
+		foreach($cstats as $c){ if(in_array($c, [110, 301, 302, 303], true) || $c >= 200) return 'REJEITADO'; }
+
+		return null;
+	}
+
 	public function consultar_cliente($id){
 		$venda = Venda::
 		where('id', $id)

@@ -694,7 +694,7 @@
 		@endif
 
 		@if(isset($nf))
-		<script type="text/javascript" src="/js/nf.js"></script>
+		<script type="text/javascript" src="/js/nf.js?v={{ @filemtime(public_path('js/nf.js')) ?: time() }}"></script>
 		@endif
 
 		@if(isset($fornecedor))

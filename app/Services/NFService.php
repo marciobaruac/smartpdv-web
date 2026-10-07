@@ -237,6 +237,11 @@ class NFService{
 				$venda->natureza->CFOP_saida_inter_estadual : $venda->natureza->CFOP_saida_estadual;
 
 			}
+
+				// Venda (tabela vendas): CFOP 5102 deve sair como 5101
+				if (preg_replace('/\D/', '', (string) $stdProd->CFOP) === '5102') {
+					$stdProd->CFOP = '5101';
+				}
 		
 
 			$stdProd->uCom = $i->produto->unidade_venda;
@@ -1099,6 +1104,11 @@ class NFService{
 			
 			$stdProd->CFOP = $config->UF != $venda->cliente->cidade->uf ?
 			$i->produto->CFOP_saida_inter_estadual : $i->produto->CFOP_saida_estadual;
+
+			// Venda (tabela vendas): CFOP 5102 deve sair como 5101
+			if (preg_replace('/\D/', '', (string) $stdProd->CFOP) === '5102') {
+				$stdProd->CFOP = '5101';
+			}
 
 
 			$cest = $i->produto->CEST;
