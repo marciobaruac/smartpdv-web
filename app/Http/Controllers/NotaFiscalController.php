@@ -563,6 +563,19 @@ class NotaFiscalController extends Controller
 		}
 		$venda->save();
 
+		// Salva o XML autorizado localmente para a impressao do DANFE nao depender
+		// de buscar na IntegraNotas depois (o XML ja vem/pode ser obtido no envio).
+		if($chave && in_array($venda->estado, ['APROVADO', 'PENDENTE'], true)){
+			try {
+				$this->salvarXmlNfeIntegraNotas($chave, $raw, $service);
+			} catch (\Throwable $e) {
+				\Log::warning('[NF IntegraNotas] Nao foi possivel salvar XML no envio', [
+					'venda_id' => $venda->id ?? null,
+					'erro' => $e->getMessage(),
+				]);
+			}
+		}
+
 		if($venda->estado === 'APROVADO' || $venda->estado === 'PENDENTE'){
 			$sufixo = $venda->estado === 'APROVADO' ? 'Autorizada' : 'em processamento';
 			$recibo = trim(((string) ($chave ?? '')) . ' ' . $sufixo);
@@ -673,7 +686,17 @@ class NotaFiscalController extends Controller
 				return response($pdf)
 				->header('Content-Type', 'application/pdf');
 			}
-			echo "Arquivo XML não encontrado!!";
+
+			// Diagnóstico claro: a causa mais comum é a nota não ter chave válida
+			// (não foi autorizada) ou a chave não existir na IntegraNotas/ambiente.
+			$chaveLimpa = preg_replace('/\D+/', '', (string) ($venda->chave ?? ''));
+			if(strlen($chaveLimpa) !== 44){
+				echo "Não é possível imprimir: esta venda não possui chave de NF-e autorizada (estado atual: "
+					. htmlspecialchars((string) $venda->estado) . "). Emita/autorize a NF-e antes de imprimir.";
+				return;
+			}
+			echo "Arquivo XML não encontrado!! Não foi possível obter o XML/DANFE da IntegraNotas para a chave "
+				. htmlspecialchars($chaveLimpa) . ". Verifique o token e o ambiente (produção/homologação) na configuração do emitente.";
 		}
 	}
 
@@ -716,6 +739,77 @@ class NotaFiscalController extends Controller
 		}
 
 		return false;
+	}
+
+	/**
+	 * Grava o XML autorizado em xml_nfe/{chave}.xml logo na emissao. Tenta
+	 * primeiro o XML que ja veio na resposta do envio; se nao veio, busca pela
+	 * chave (xmlNFe). Retorna true se gravou.
+	 */
+	private function salvarXmlNfeIntegraNotas($chave, $raw, $service){
+		$chave = preg_replace('/\D+/', '', (string) $chave);
+		if(strlen($chave) !== 44){
+			return false;
+		}
+
+		$xml = $this->extrairXmlDaResposta($raw);
+
+		// Se a resposta do envio nao trouxe o XML, busca pela chave.
+		if($xml === null || $xml === ''){
+			if($service === null){
+				$service = new IntegraNotasService();
+			}
+			if($service->temToken()){
+				$res = $service->xmlNFe($chave);
+				if(!empty($res['ok']) && !empty($res['xml'])){
+					$xml = $res['xml'];
+				}
+			}
+		}
+
+		if($xml === null || $xml === ''){
+			return false;
+		}
+
+		$public = getenv('SERVIDOR_WEB') ? 'public/' : '';
+		$dir = $public.'xml_nfe';
+		if(!is_dir($dir)){
+			@mkdir($dir, 0775, true);
+		}
+		file_put_contents($dir.'/'.$chave.'.xml', $xml);
+		return true;
+	}
+
+	/**
+	 * Extrai o XML da NF-e de uma resposta (array) da IntegraNotas, testando os
+	 * campos conhecidos e decodificando base64 quando necessario.
+	 */
+	private function extrairXmlDaResposta($raw){
+		if(!is_array($raw)){
+			return null;
+		}
+		$g = function($p) use ($raw){ return \Illuminate\Support\Arr::get($raw, $p); };
+		$xml = $g('xml') ?? $g('dados.xml') ?? $g('nfe.xml') ?? $g('xml_autorizado')
+			?? $g('xmlProc') ?? $g('dados.xmlProc') ?? $g('dados.xml_autorizado')
+			?? $g('danfe.xml') ?? $g('nfeProc');
+
+		if(!is_string($xml) || $xml === ''){
+			return null;
+		}
+
+		// Base64 sem tags -> decodifica.
+		if(strpos($xml, '<') === false && preg_match('/^[A-Za-z0-9+\/=\s]+$/', $xml)){
+			$decoded = base64_decode($xml, true);
+			if($decoded !== false && $decoded !== ''){
+				$xml = $decoded;
+			}
+		}
+
+		if(strpos($xml, '<NFe') !== false || strpos($xml, '<nfeProc') !== false){
+			return $xml;
+		}
+
+		return null;
 	}
 
 	/**
