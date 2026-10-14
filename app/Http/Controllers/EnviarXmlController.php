@@ -71,6 +71,24 @@ class EnviarXmlController extends Controller
             return ((string)$model->id) . '.xml';
         };
 
+        // Descobre o modelo do documento: '55' (NFe) ou '65' (NFC-e).
+        // Prioriza o modelo embutido na chave (44 dígitos, posição 20-21);
+        // se a chave estiver vazia, cai no número de nota preenchido.
+        $modeloChave = function ($model) {
+            $chave = preg_replace('/\D/', '', (string)($model->chave ?? ''));
+            if (strlen($chave) === 44) {
+                return substr($chave, 20, 2); // mod
+            }
+            // Fallback pelos campos da Venda
+            if (!empty($model->NFcNumero)) {
+                return '65';
+            }
+            if (!empty($model->NfNumero)) {
+                return '55';
+            }
+            return null; // indeterminado
+        };
+
         $acharOrigem = function ($model, array $candidatos) use ($public) {
             $saved = trim((string)($model->path_xml ?? ''));
 
@@ -108,13 +126,18 @@ class EnviarXmlController extends Controller
             return null;
         };
 
-        // ---------- NFe (Vendas)
-        $xml = Venda::where($rangeFilter)
+        // ---------- Vendas aprovadas (podem ser NFe mod 55 ou NFC-e mod 65)
+        $vendas = Venda::where($rangeFilter)
             ->when($id, fn($q) => $q->where('id', $id))
             ->when($chave, fn($q) => $q->where('chave', $chave))
             ->where('estado', 'APROVADO')
             ->get();
 
+        // Separa as vendas pelo modelo do documento fiscal
+        $xml          = $vendas->filter(fn($x) => $modeloChave($x) === '55')->values(); // NFe
+        $vendasNfce   = $vendas->filter(fn($x) => $modeloChave($x) === '65')->values(); // NFC-e (emitidas pela tela de venda)
+
+        // ---------- NFe (modelo 55) -> xml.zip
         try {
             if ($xml->count() > 0) {
                 $zip_file = $public . 'xml.zip';
@@ -123,7 +146,7 @@ class EnviarXmlController extends Controller
 
                 foreach ($xml as $x) {
                     $entry = $nomeEntradaZip($x);
-                    $src   = $acharOrigem($x, ['xml_nfe', 'xml_nfce']); // alguns projetos misturam
+                    $src   = $acharOrigem($x, ['xml_nfe']); // somente NFe
                     if ($src) {
                         $zip->addFile($src, $entry);
                     }
@@ -161,14 +184,17 @@ class EnviarXmlController extends Controller
             // opcional
         }
 
-        // ---------- NFC-e (Vendas de Caixa)
+        // ---------- NFC-e (modelo 65): Vendas de Caixa + Vendas emitidas como NFC-e
         $xmlNfce = collect();
         try {
-            $xmlNfce = VendaCaixa::where($rangeFilter)
+            $xmlCaixa = VendaCaixa::where($rangeFilter)
                 ->when($id, fn($q) => $q->where('id', $id))
                 ->when($chave, fn($q) => $q->where('chave', $chave))
                 ->where('estado', 'APROVADO')
                 ->get();
+
+            // Junta as NFC-e vindas da frente de caixa com as NFC-e emitidas pela tela de venda
+            $xmlNfce = $xmlCaixa->concat($vendasNfce)->values();
 
             if ($xmlNfce->count() > 0) {
                 $zip_file = $public . 'xmlnfce.zip';
@@ -177,7 +203,7 @@ class EnviarXmlController extends Controller
 
                 foreach ($xmlNfce as $x) {
                     $entry = $nomeEntradaZip($x);
-                    $src   = $acharOrigem($x, ['xml_nfce']);
+                    $src   = $acharOrigem($x, ['xml_nfce']); // somente NFC-e
                     if ($src) {
                         $zip->addFile($src, $entry);
                     }
