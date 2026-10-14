@@ -45,6 +45,10 @@ class EnviarXmlController extends Controller
         $id    = $request->id ?? null;
         $chave = $request->chave ?? null;
 
+        // Tipo de documento a buscar: TODOS | NFE | NFCE | CTE | MDFE
+        $tipo  = strtoupper(trim((string)($request->tipo ?? 'TODOS')));
+        $quer  = fn($t) => in_array($tipo, ['TODOS', $t], true);
+
         // (updated_at BETWEEN ... OR created_at BETWEEN ...)
         $rangeFilter = function ($q) use ($start, $end) {
             $q->whereBetween('updated_at', [$start, $end])
@@ -127,19 +131,23 @@ class EnviarXmlController extends Controller
         };
 
         // ---------- Vendas aprovadas (podem ser NFe mod 55 ou NFC-e mod 65)
-        $vendas = Venda::where($rangeFilter)
-            ->when($id, fn($q) => $q->where('id', $id))
-            ->when($chave, fn($q) => $q->where('chave', $chave))
-            ->where('estado', 'APROVADO')
-            ->get();
+        $xml        = collect();
+        $vendasNfce = collect();
+        if ($quer('NFE') || $quer('NFCE')) {
+            $vendas = Venda::where($rangeFilter)
+                ->when($id, fn($q) => $q->where('id', $id))
+                ->when($chave, fn($q) => $q->where('chave', $chave))
+                ->where('estado', 'APROVADO')
+                ->get();
 
-        // Separa as vendas pelo modelo do documento fiscal
-        $xml          = $vendas->filter(fn($x) => $modeloChave($x) === '55')->values(); // NFe
-        $vendasNfce   = $vendas->filter(fn($x) => $modeloChave($x) === '65')->values(); // NFC-e (emitidas pela tela de venda)
+            // Separa as vendas pelo modelo do documento fiscal
+            $xml        = $vendas->filter(fn($x) => $modeloChave($x) === '55')->values(); // NFe
+            $vendasNfce = $vendas->filter(fn($x) => $modeloChave($x) === '65')->values(); // NFC-e (emitidas pela tela de venda)
+        }
 
         // ---------- NFe (modelo 55) -> xml.zip
         try {
-            if ($xml->count() > 0) {
+            if ($quer('NFE') && $xml->count() > 0) {
                 $zip_file = $public . 'xml.zip';
                 $zip = new \ZipArchive();
                 $zip->open($zip_file, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
@@ -160,6 +168,7 @@ class EnviarXmlController extends Controller
         // ---------- CTe
         $xmlCte = collect();
         try {
+            if ($quer('CTE')) {
             $xmlCte = Cte::where($rangeFilter)
                 ->when($id, fn($q) => $q->where('id', $id))
                 ->when($chave, fn($q) => $q->where('chave', $chave))
@@ -180,6 +189,7 @@ class EnviarXmlController extends Controller
                 }
                 $zip->close();
             }
+            }
         } catch (\Exception $e) {
             // opcional
         }
@@ -187,6 +197,7 @@ class EnviarXmlController extends Controller
         // ---------- NFC-e (modelo 65): Vendas de Caixa + Vendas emitidas como NFC-e
         $xmlNfce = collect();
         try {
+            if ($quer('NFCE')) {
             $xmlCaixa = VendaCaixa::where($rangeFilter)
                 ->when($id, fn($q) => $q->where('id', $id))
                 ->when($chave, fn($q) => $q->where('chave', $chave))
@@ -210,11 +221,14 @@ class EnviarXmlController extends Controller
                 }
                 $zip->close();
             }
+            }
         } catch (\Exception $e) {
             // opcional
         }
 
         // ---------- MDF-e
+        $xmlMdfe = collect();
+        if ($quer('MDFE')) {
         $xmlMdfe = Mdfe::where($rangeFilter)
             ->when($id, fn($q) => $q->where('id', $id))
             ->when($chave, fn($q) => $q->where('chave', $chave))
@@ -239,6 +253,7 @@ class EnviarXmlController extends Controller
                 // opcional
             }
         }
+        }
 
         // ---- view
         $dataInicial = str_replace("/", "-", $request->data_inicial);
@@ -249,6 +264,7 @@ class EnviarXmlController extends Controller
             ->with('xmlNfce', $xmlNfce ?? collect())
             ->with('xmlCte', $xmlCte ?? collect())
             ->with('xmlMdfe', $xmlMdfe ?? collect())
+            ->with('tipo', $tipo)
             ->with('dataInicial', $dataInicial)
             ->with('dataFinal', $dataFinal)
             ->with('title', 'Enviar XML');

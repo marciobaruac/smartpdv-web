@@ -52,6 +52,18 @@
 											</div>
 										</div>
 
+										<div class="form-group col-lg-4 col-md-4 col-sm-6">
+											<label class="col-form-label">Tipo</label>
+											<select name="tipo" class="form-control">
+												@php $tipoSel = $tipo ?? 'TODOS'; @endphp
+												<option value="TODOS" {{ $tipoSel == 'TODOS' ? 'selected' : '' }}>Todos</option>
+												<option value="NFE"   {{ $tipoSel == 'NFE'   ? 'selected' : '' }}>NF-e</option>
+												<option value="NFCE"  {{ $tipoSel == 'NFCE'  ? 'selected' : '' }}>NFC-e</option>
+												<option value="CTE"   {{ $tipoSel == 'CTE'   ? 'selected' : '' }}>CT-e</option>
+												<option value="MDFE"  {{ $tipoSel == 'MDFE'  ? 'selected' : '' }}>MDF-e</option>
+											</select>
+										</div>
+
 										<div class="col-lg-3 col-md-3 col-sm-6">
 											<button style="margin-top: 15px;" class="btn btn-light-primary px-6 font-weight-bold">Buscar Arquivos</button>
 										</div>
