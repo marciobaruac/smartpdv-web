@@ -140,9 +140,14 @@ class EnviarXmlController extends Controller
                 ->where('estado', 'APROVADO')
                 ->get();
 
-            // Separa as vendas pelo modelo do documento fiscal
-            $xml        = $vendas->filter(fn($x) => $modeloChave($x) === '55')->values(); // NFe
-            $vendasNfce = $vendas->filter(fn($x) => $modeloChave($x) === '65')->values(); // NFC-e (emitidas pela tela de venda)
+            // Separa as vendas pelo modelo do documento fiscal, respeitando o tipo escolhido.
+            // Se o usuário pediu só NFC-e, NÃO popula $xml (NFe), para não exibir a seção de NF-e.
+            if ($quer('NFE')) {
+                $xml = $vendas->filter(fn($x) => $modeloChave($x) === '55')->values(); // NFe
+            }
+            if ($quer('NFCE')) {
+                $vendasNfce = $vendas->filter(fn($x) => $modeloChave($x) === '65')->values(); // NFC-e (emitidas pela tela de venda)
+            }
         }
 
         // ---------- NFe (modelo 55) -> xml.zip
