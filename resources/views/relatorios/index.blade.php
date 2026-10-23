@@ -69,6 +69,17 @@
 
 										</div>
 
+										<div class="form-group validated col-lg-12 col-md-12 col-sm-12">
+											<label class="col-form-label text-left col-lg-12 col-sm-12">Origem</label>
+
+											<select class="custom-select form-control" name="origem">
+												<option value="pdv" selected>Somente PDV (Frente de Caixa)</option>
+												<option value="todas">Todas as vendas</option>
+												<option value="vendas">Somente vendas normais</option>
+											</select>
+
+										</div>
+
 										<div class="form-group validated col-lg-12 col-xl-12 mt-12 mt-lg-0">
 											<button style="width: 100%" class="btn btn-light-primary px-6 font-weight-bold">Gerar Relatório</button>
 										</div>

@@ -66,6 +66,8 @@ class RelatorioController extends Controller
         $data_final = $request->data_final;
         $total_resultados = $request->total_resultados;
         $ordem = $request->ordem;
+        // Origem das vendas: 'todas' (padrão), 'pdv' (apenas Frente de Caixa) ou 'vendas' (apenas vendas normais)
+        $origem = $request->origem ?? 'todas';
 
         if ($data_inicial && $data_final) {
             $data_inicial = $this->parseDate($data_inicial);
@@ -74,29 +76,35 @@ class RelatorioController extends Controller
 
         $config = ConfigNota::first();
 
-        $vendas = Venda::select(\DB::raw('DATE_FORMAT(vendas.data_registro, "%d-%m-%Y") as data, sum(vendas.valor_total) as total, count(*) as total_vendas'))
-            ->orWhere(function ($q) use ($data_inicial, $data_final) {
-                if ($data_inicial && $data_final) {
-                    return $q->whereBetween('vendas.data_registro', [$data_inicial, $data_final]);
-                }
-            })
-            ->where('ativo', true)
-            ->groupBy('data')
-            ->orderBy($ordem == 'data' ? 'data' : 'total', $ordem == 'data' ? 'desc' : $ordem)
-            ->limit($total_resultados ?? 1000000)
-            ->get();
+        $vendas = collect();
+        if ($origem != 'pdv') {
+            $vendas = Venda::select(\DB::raw('DATE_FORMAT(vendas.data_registro, "%d-%m-%Y") as data, sum(vendas.valor_total) as total, count(*) as total_vendas'))
+                ->orWhere(function ($q) use ($data_inicial, $data_final) {
+                    if ($data_inicial && $data_final) {
+                        return $q->whereBetween('vendas.data_registro', [$data_inicial, $data_final]);
+                    }
+                })
+                ->where('ativo', true)
+                ->groupBy('data')
+                ->orderBy($ordem == 'data' ? 'data' : 'total', $ordem == 'data' ? 'desc' : $ordem)
+                ->limit($total_resultados ?? 1000000)
+                ->get();
+        }
 
-        $vendasCaixa = VendaCaixa::select(\DB::raw('DATE_FORMAT(venda_caixas.data_registro, "%d-%m-%Y") as data, sum(venda_caixas.valor_total) as total, count(*) as total_vendas'))
-            ->orWhere(function ($q) use ($data_inicial, $data_final) {
-                if ($data_inicial && $data_final) {
-                    return $q->whereBetween('venda_caixas.data_registro', [$data_inicial, $data_final]);
-                }
-            })
-            ->where('ativo', true)
-            ->groupBy('data')
-            ->orderBy($ordem == 'data' ? 'data' : 'total', $ordem == 'data' ? 'desc' : $ordem)
-            ->limit($total_resultados ?? 1000000)
-            ->get();
+        $vendasCaixa = collect();
+        if ($origem != 'vendas') {
+            $vendasCaixa = VendaCaixa::select(\DB::raw('DATE_FORMAT(venda_caixas.data_registro, "%d-%m-%Y") as data, sum(venda_caixas.valor_total) as total, count(*) as total_vendas'))
+                ->orWhere(function ($q) use ($data_inicial, $data_final) {
+                    if ($data_inicial && $data_final) {
+                        return $q->whereBetween('venda_caixas.data_registro', [$data_inicial, $data_final]);
+                    }
+                })
+                ->where('ativo', true)
+                ->groupBy('data')
+                ->orderBy($ordem == 'data' ? 'data' : 'total', $ordem == 'data' ? 'desc' : $ordem)
+                ->limit($total_resultados ?? 1000000)
+                ->get();
+        }
 
         $arr = $this->uneArrayVendas($vendas, $vendasCaixa);
 
